@@ -1,0 +1,26 @@
+# Point d'entrée Hydra. Surcharger en CLI : python scripts/train.py split=cold_target
+defaults:
+  - _self_
+  - data: chembl_kinase
+  - model: gine_esm2
+  - split: scaffold
+  - trainer: single_gpu
+
+seed: 42
+paths:
+  root: ${oc.env:PWD}
+  processed: ${paths.root}/data/processed
+  artifacts: ${paths.root}/artifacts
+  pockets_lmdb: ${paths.processed}/pockets.lmdb
+  graphs_lmdb: ${paths.processed}/graphs.lmdb
+  pairs: ${paths.processed}/pairs.parquet
+
+logging:
+  backend: mlflow
+  tracking_uri: http://localhost:5000
+  experiment_name: kinoscope
+  log_every_n_steps: 25
+
+hydra:
+  run: { dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S} }
+  job: { chdir: false }

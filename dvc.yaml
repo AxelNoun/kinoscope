@@ -1,0 +1,39 @@
+stages:
+  ingest:
+    cmd: python scripts/download_sources.py --out data/raw
+    deps: [scripts/download_sources.py]
+    outs: [data/raw/chembl_kinase.parquet, data/raw/bindingdb.parquet, data/raw/davis.parquet]
+
+  standardize:
+    cmd: python scripts/build_dataset.py standardize --in data/raw --out data/interim
+    deps: [data/raw, src/kinoscope/data/standardize.py]
+    outs: [data/interim/compounds.parquet]
+    metrics: [reports/standardization_rejects.json]
+
+  map_pocket:
+    cmd: python scripts/build_dataset.py pocket --out data/processed/targets.parquet
+    deps: [src/kinoscope/data/sources/klifs.py]
+    outs: [data/processed/targets.parquet]
+
+  embed:
+    cmd: python scripts/precompute_esm_embeddings.py --targets data/processed/targets.parquet --out data/processed/pockets.lmdb
+    deps: [data/processed/targets.parquet, scripts/precompute_esm_embeddings.py]
+    outs: [data/processed/pockets.lmdb]
+
+  featurize:
+    cmd: python scripts/build_dataset.py featurize --out data/processed/graphs.lmdb
+    deps: [data/interim/compounds.parquet, src/kinoscope/data/featurizer.py]
+    outs: [data/processed/graphs.lmdb]
+
+  split:
+    cmd: python scripts/build_dataset.py split --out data/processed/splits
+    deps: [data/processed/pairs.parquet, src/kinoscope/data/splits.py]
+    outs: [data/processed/splits]
+    metrics: [reports/leakage_audit.json]
+
+  train:
+    cmd: python scripts/train.py experiment=main
+    deps: [data/processed, src/kinoscope]
+    params: [params.yaml:model, params.yaml:trainer]
+    outs: [artifacts/model.ckpt]
+    metrics: [reports/metrics.json]

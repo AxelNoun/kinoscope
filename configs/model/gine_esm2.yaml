@@ -1,0 +1,28 @@
+_target_: kinoscope.models.model.ModelConfig
+
+hidden_dim: 256
+gnn_layers: 5
+gnn_dropout: 0.1
+gnn_jk: true
+
+plm_dim: 1280          # esm2_t33_650M_UR50D
+pocket_len: 85         # alignement KLIFS
+adapter_layers: 2
+adapter_heads: 8
+adapter_dropout: 0.1
+
+ban_heads: 4
+ban_rank: 96
+ban_dropout: 0.2
+
+n_assay_types: 5
+assay_emb_dim: 16
+
+head_hidden: 512
+head_dropout: 0.3
+heteroscedastic: true
+
+w_affinity: 1.0
+w_activity: 0.2
+w_contact: 0.1
+activity_threshold: 6.5

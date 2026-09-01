@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+build/
+dist/
+
+# Data & artefacts: DVC-tracked, never committed
+data/raw/*
+data/interim/*
+data/processed/*
+data/external/*
+!data/**/.gitkeep
+*.lmdb
+*.ckpt
+*.onnx
+mlruns/
+outputs/
+lightning_logs/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.ipynb_checkpoints/

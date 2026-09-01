@@ -1,0 +1,12 @@
+name: cold_target
+strategy: cold_target
+by: manning_group      # 'uniprot' pour un régime plus permissif
+fractions: [0.8, 0.1, 0.1]
+seed: 42
+
+# Seuils d'échec de l'audit de fuite. La CI refuse un run qui les dépasse.
+audit:
+  max_shared_inchikeys: 0
+  max_shared_uniprots: 0
+  max_shared_scaffolds: 0
+  max_tanimoto_train_test: 0.85

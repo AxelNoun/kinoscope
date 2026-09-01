@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "Si vous utilisez ce logiciel, merci de le citer à l'aide de ces métadonnées."
+title: "KinoScope"
+abstract: >-
+  Modèle hybride GNN (GINE) + ESM-2 pour la prédiction d'affinité
+  kinase–inhibiteur, assorti d'un protocole d'évaluation à quatre régimes de
+  partition et d'un audit de fuite de données automatisé.
+type: software
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/AxelNoun/kinoscope"
+keywords:
+  - drug-target-interaction
+  - graph-neural-network
+  - protein-language-model
+  - cheminformatics
+  - data-leakage
+# `affiliation` et `orcid` restent à renseigner (champs optionnels en CFF 1.2.0) :
+# non communiqués, donc non inventés.
+authors:
+  - family-names: "Coiffard-Donaty"
+    given-names: "Axel"
+    alias: "AxelNoun"
