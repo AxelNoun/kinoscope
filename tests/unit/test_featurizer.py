@@ -17,11 +17,11 @@ from kinoscope.data.featurizer import (
 from kinoscope.models.model import ATOM_FEATURE_DIMS, BOND_FEATURE_DIMS
 
 SMILES = [
-    "CC(=O)Oc1ccccc1C(=O)O",                                       # aspirine
-    "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1", # imatinib
-    "C[C@H](N)C(=O)O",                                             # stéréocentre
-    "c1ccc2c(c1)ccc1ccccc12",                                      # polycyclique
-    "[Na+].[Cl-]",                                                 # sel (à rejeter en amont)
+    "CC(=O)Oc1ccccc1C(=O)O",  # aspirine
+    "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1",  # imatinib
+    "C[C@H](N)C(=O)O",  # stéréocentre
+    "c1ccc2c(c1)ccc1ccccc12",  # polycyclique
+    "[Na+].[Cl-]",  # sel (à rejeter en amont)
 ]
 
 

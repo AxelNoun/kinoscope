@@ -10,14 +10,27 @@ AssayType = Literal["Kd", "Ki", "IC50", "EC50", "unknown"]
 
 
 class PredictionRequest(BaseModel):
-    smiles: Annotated[str, Field(min_length=2, max_length=600, examples=["Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1"])]
-    uniprot_id: Annotated[str, Field(pattern=r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$|^[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$", examples=["P00519"])]
+    smiles: Annotated[
+        str,
+        Field(
+            min_length=2,
+            max_length=600,
+            examples=["Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1"],
+        ),
+    ]
+    uniprot_id: Annotated[
+        str,
+        Field(
+            pattern=r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$|^[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$",
+            examples=["P00519"],
+        ),
+    ]
     assay_type: AssayType = "Kd"
 
     @field_validator("smiles")
     @classmethod
     def validate_smiles(cls, v: str) -> str:
-        from rdkit import Chem, RDLogger  # noqa: PLC0415
+        from rdkit import Chem, RDLogger
 
         RDLogger.DisableLog("rdApp.*")
         if Chem.MolFromSmiles(v) is None:
@@ -39,7 +52,9 @@ class PredictionResponse(BaseModel):
     p_affinity: float = Field(description="Affinité prédite, échelle -log10(M)")
     ci_lower: float
     ci_upper: float
-    coverage: float = Field(default=0.90, description="Couverture nominale de l'intervalle conforme")
+    coverage: float = Field(
+        default=0.90, description="Couverture nominale de l'intervalle conforme"
+    )
     p_active: float
     in_applicability_domain: bool
     nearest_neighbour_tanimoto: float

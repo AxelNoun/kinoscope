@@ -103,11 +103,15 @@ def standardize(smiles: str, *, canonical_tautomer: bool = True) -> Standardized
     )
 
 
-def standardize_batch(smiles_list: list[str], *, n_jobs: int = 1) -> list[StandardizedMolecule | None]:
+def standardize_batch(
+    smiles_list: list[str], *, n_jobs: int = 1
+) -> list[StandardizedMolecule | None]:
     """Version batch. ``n_jobs > 1`` requiert joblib (RDKit n'est pas thread-safe :
     utiliser des *processus*, jamais des threads)."""
     if n_jobs == 1:
         return [standardize(s) for s in smiles_list]
-    from joblib import Parallel, delayed  # noqa: PLC0415
+    from joblib import Parallel, delayed
 
-    return list(Parallel(n_jobs=n_jobs, backend="loky")(delayed(standardize)(s) for s in smiles_list))
+    return list(
+        Parallel(n_jobs=n_jobs, backend="loky")(delayed(standardize)(s) for s in smiles_list)
+    )

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, status
 
@@ -27,8 +28,10 @@ _state: dict[str, Any] = {}
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # noqa: ANN201, ARG001
-    from kinoscope.serving.predictor import Predictor  # noqa: PLC0415
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
+    # `predictor.py` est livré à l'étape 7.2 du MASTER_PLAN. L'ignore devient
+    # inutile dès sa création, et `warn_unused_ignores` le signalera alors.
+    from kinoscope.serving.predictor import Predictor  # type: ignore[import-not-found]
 
     logger.info("chargement du prédicteur (version %s)", MODEL_VERSION)
     _state["predictor"] = Predictor.from_checkpoint(
@@ -62,7 +65,7 @@ async def healthz() -> HealthResponse:
 async def predict(req: PredictionRequest) -> PredictionResponse:
     p = _state["predictor"]
     try:
-        return p.predict_one(req)
+        return cast(PredictionResponse, p.predict_one(req))
     except KeyError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"cible inconnue: {exc}") from exc
     except ValueError as exc:
@@ -71,11 +74,11 @@ async def predict(req: PredictionRequest) -> PredictionResponse:
 
 @app.post("/predict/batch", response_model=list[PredictionResponse], tags=["inference"])
 async def predict_batch(req: BatchPredictionRequest) -> list[PredictionResponse]:
-    return _state["predictor"].predict_many(req.items)
+    return cast(list[PredictionResponse], _state["predictor"].predict_many(req.items))
 
 
 @app.post("/profile/kinome", tags=["inference"])
 async def profile_kinome(smiles: str, top_k: int = 20) -> dict[str, Any]:
     """Profil de sélectivité : une molécule contre toutes les kinases couvertes.
     Retourne le classement et l'entropie de Shannon du profil (score de promiscuité)."""
-    return _state["predictor"].profile_kinome(smiles, top_k=top_k)
+    return cast(dict[str, Any], _state["predictor"].profile_kinome(smiles, top_k=top_k))

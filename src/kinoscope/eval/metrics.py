@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 import numpy as np
+import numpy.typing as npt
 from scipy import stats
 from sklearn.metrics import average_precision_score, roc_auc_score
 
@@ -29,11 +30,13 @@ class RegressionMetrics:
         return asdict(self)
 
 
-def rmse(y: np.ndarray, yhat: np.ndarray) -> float:
+def rmse(y: npt.NDArray[np.float64], yhat: npt.NDArray[np.float64]) -> float:
     return float(np.sqrt(np.mean((y - yhat) ** 2)))
 
 
-def concordance_index(y: np.ndarray, yhat: np.ndarray, *, chunk: int = 2048) -> float:
+def concordance_index(
+    y: npt.NDArray[np.float64], yhat: npt.NDArray[np.float64], *, chunk: int = 2048
+) -> float:
     """CI = (paires concordantes + 0.5 * ex aequo) / paires comparables.
 
     Implémentation O(n^2) chunkée : exacte, et suffisante jusqu'à ~5.10^4 points.
@@ -53,7 +56,7 @@ def concordance_index(y: np.ndarray, yhat: np.ndarray, *, chunk: int = 2048) -> 
     return float((concordant + 0.5 * ties) / comparable)
 
 
-def r2m(y: np.ndarray, yhat: np.ndarray) -> float:
+def r2m(y: npt.NDArray[np.float64], yhat: npt.NDArray[np.float64]) -> float:
     """r_m^2 de Roy : pénalise les modèles dont la régression forcée à l'origine
     diverge du modèle libre. Standard QSAR pour détecter un biais systématique."""
     r2 = stats.pearsonr(y, yhat)[0] ** 2
@@ -62,7 +65,13 @@ def r2m(y: np.ndarray, yhat: np.ndarray) -> float:
     return float(r2 * (1.0 - np.sqrt(abs(r2 - r0_2))))
 
 
-def enrichment_factor(y: np.ndarray, yhat: np.ndarray, *, threshold: float, fraction: float = 0.01) -> float:
+def enrichment_factor(
+    y: npt.NDArray[np.float64],
+    yhat: npt.NDArray[np.float64],
+    *,
+    threshold: float,
+    fraction: float = 0.01,
+) -> float:
     """EF à x % : facteur d'enrichissement en actifs dans le top x % du ranking.
     Métrique de triage réel de librairie, plus parlante qu'une RMSE."""
     active = y >= threshold
@@ -73,7 +82,9 @@ def enrichment_factor(y: np.ndarray, yhat: np.ndarray, *, threshold: float, frac
     return float((active[top].mean()) / active.mean())
 
 
-def compute_metrics(y: np.ndarray, yhat: np.ndarray, *, activity_threshold: float = 6.5) -> RegressionMetrics:
+def compute_metrics(
+    y: npt.NDArray[np.float64], yhat: npt.NDArray[np.float64], *, activity_threshold: float = 6.5
+) -> RegressionMetrics:
     active = (y >= activity_threshold).astype(int)
     has_both_classes = 0 < active.sum() < len(active)
     return RegressionMetrics(
@@ -90,8 +101,8 @@ def compute_metrics(y: np.ndarray, yhat: np.ndarray, *, activity_threshold: floa
 
 
 def bootstrap_ci(
-    y: np.ndarray,
-    yhat: np.ndarray,
+    y: npt.NDArray[np.float64],
+    yhat: npt.NDArray[np.float64],
     *,
     n_resamples: int = 1000,
     alpha: float = 0.05,
@@ -112,6 +123,6 @@ def bootstrap_ci(
     for k, v in point.items():
         arr = np.asarray(draws[k], dtype=float)
         arr = arr[~np.isnan(arr)]
-        lo, hi = (np.quantile(arr, [alpha / 2, 1 - alpha / 2]) if arr.size else (np.nan, np.nan))
+        lo, hi = np.quantile(arr, [alpha / 2, 1 - alpha / 2]) if arr.size else (np.nan, np.nan)
         out[k] = (v, float(lo), float(hi))
     return out

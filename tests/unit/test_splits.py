@@ -25,14 +25,16 @@ def toy_df() -> pd.DataFrame:
     for i in range(300):
         core = cores[i % len(cores)]
         smi = f"{core}" + "C" * (i % 4)
-        rows.append({
-            "smiles": smi,
-            "inchikey": f"IK{i:05d}",
-            "uniprot": f"P{i % 12:05d}",
-            "manning_group": ["TK", "CMGC", "AGC", "CAMK", "STE", "CK1", "TKL"][i % 7],
-            "p_affinity": float(rng.normal(7, 1.2)),
-            "doc_year": int(rng.integers(2005, 2024)),
-        })
+        rows.append(
+            {
+                "smiles": smi,
+                "inchikey": f"IK{i:05d}",
+                "uniprot": f"P{i % 12:05d}",
+                "manning_group": ["TK", "CMGC", "AGC", "CAMK", "STE", "CK1", "TKL"][i % 7],
+                "p_affinity": float(rng.normal(7, 1.2)),
+                "doc_year": int(rng.integers(2005, 2024)),
+            }
+        )
     return pd.DataFrame(rows)
 
 

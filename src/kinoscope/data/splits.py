@@ -10,9 +10,10 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal, cast
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
@@ -27,9 +28,9 @@ _MFPGEN = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 
 @dataclass(frozen=True)
 class Split:
-    train: np.ndarray
-    valid: np.ndarray
-    test: np.ndarray
+    train: npt.NDArray[np.int64]
+    valid: npt.NDArray[np.int64]
+    test: npt.NDArray[np.int64]
 
     def as_dict(self) -> dict[str, list[int]]:
         return {k: getattr(self, k).tolist() for k in ("train", "valid", "test")}
@@ -38,12 +39,15 @@ class Split:
 # --------------------------------------------------------------------------- #
 # Fingerprints & scaffolds
 # --------------------------------------------------------------------------- #
-def morgan_fingerprints(smiles: list[str]):  # noqa: ANN201
+def morgan_fingerprints(smiles: list[str]) -> list[Any]:
     return [_MFPGEN.GetFingerprint(Chem.MolFromSmiles(s)) for s in smiles]
 
 
 def murcko_scaffold(smiles: str, *, include_chirality: bool = False) -> str:
-    return MurckoScaffold.MurckoScaffoldSmiles(smiles=smiles, includeChirality=include_chirality)
+    return cast(
+        str,
+        MurckoScaffold.MurckoScaffoldSmiles(smiles=smiles, includeChirality=include_chirality),
+    )
 
 
 def butina_clusters(smiles: list[str], cutoff: float = 0.6) -> list[int]:
@@ -70,7 +74,9 @@ def butina_clusters(smiles: list[str], cutoff: float = 0.6) -> list[int]:
 # --------------------------------------------------------------------------- #
 # Stratégies
 # --------------------------------------------------------------------------- #
-def _group_split(groups: list[int] | list[str], frac: tuple[float, float, float], seed: int) -> Split:
+def _group_split(
+    groups: list[int] | list[str], frac: tuple[float, float, float], seed: int
+) -> Split:
     """Partitionne des *groupes* entiers, du plus gros au plus petit (greedy bin-packing).
 
     Le remplissage glouton évite qu'un cluster massif déséquilibre le test set,
@@ -96,7 +102,9 @@ def _group_split(groups: list[int] | list[str], frac: tuple[float, float, float]
     return Split(*[np.asarray(sorted(b), dtype=np.int64) for b in buckets])
 
 
-def random_split(df: pd.DataFrame, frac=(0.8, 0.1, 0.1), seed: int = 42) -> Split:
+def random_split(
+    df: pd.DataFrame, frac: tuple[float, float, float] = (0.8, 0.1, 0.1), seed: int = 42
+) -> Split:
     """Témoin optimiste. Sert uniquement à quantifier l'ampleur de la fuite."""
     rng = np.random.default_rng(seed)
     idx = rng.permutation(len(df))
@@ -104,18 +112,31 @@ def random_split(df: pd.DataFrame, frac=(0.8, 0.1, 0.1), seed: int = 42) -> Spli
     return Split(np.sort(idx[:n_tr]), np.sort(idx[n_tr : n_tr + n_va]), np.sort(idx[n_tr + n_va :]))
 
 
-def scaffold_split(df: pd.DataFrame, frac=(0.8, 0.1, 0.1), seed: int = 42) -> Split:
+def scaffold_split(
+    df: pd.DataFrame, frac: tuple[float, float, float] = (0.8, 0.1, 0.1), seed: int = 42
+) -> Split:
     """Cold-drug par squelette de Bemis-Murcko."""
     scaffolds = [murcko_scaffold(s) for s in df["smiles"]]
     return _group_split(scaffolds, frac, seed)
 
 
-def butina_split(df: pd.DataFrame, cutoff: float = 0.6, frac=(0.8, 0.1, 0.1), seed: int = 42) -> Split:
+def butina_split(
+    df: pd.DataFrame,
+    cutoff: float = 0.6,
+    frac: tuple[float, float, float] = (0.8, 0.1, 0.1),
+    seed: int = 42,
+) -> Split:
     """Cold-drug plus strict : clusters de similarité, pas seulement de squelette."""
     return _group_split(butina_clusters(list(df["smiles"]), cutoff), frac, seed)
 
 
-def cold_target_split(df: pd.DataFrame, frac=(0.8, 0.1, 0.1), seed: int = 42, *, by: str = "manning_group") -> Split:
+def cold_target_split(
+    df: pd.DataFrame,
+    frac: tuple[float, float, float] = (0.8, 0.1, 0.1),
+    seed: int = 42,
+    *,
+    by: str = "manning_group",
+) -> Split:
     """Cold-target. ``by='manning_group'`` = leave-group-out (le régime le plus dur) ;
     ``by='uniprot'`` = cibles inédites mais familles potentiellement vues."""
     if by not in df.columns:
@@ -123,7 +144,9 @@ def cold_target_split(df: pd.DataFrame, frac=(0.8, 0.1, 0.1), seed: int = 42, *,
     return _group_split(list(df[by]), frac, seed)
 
 
-def cold_pair_split(df: pd.DataFrame, frac=(0.8, 0.1, 0.1), seed: int = 42) -> Split:
+def cold_pair_split(
+    df: pd.DataFrame, frac: tuple[float, float, float] = (0.8, 0.1, 0.1), seed: int = 42
+) -> Split:
     """Intersection cold-drug x cold-target : le seul régime réellement prospectif."""
     drug = scaffold_split(df, frac, seed)
     target = cold_target_split(df, frac, seed)
@@ -136,7 +159,9 @@ def cold_pair_split(df: pd.DataFrame, frac=(0.8, 0.1, 0.1), seed: int = 42) -> S
     )
 
 
-def temporal_split(df: pd.DataFrame, *, valid_year: int, test_year: int, year_col: str = "doc_year") -> Split:
+def temporal_split(
+    df: pd.DataFrame, *, valid_year: int, test_year: int, year_col: str = "doc_year"
+) -> Split:
     """Proxy prospectif : on entraîne sur le passé, on teste sur le futur."""
     y = df[year_col].to_numpy()
     return Split(
@@ -167,7 +192,9 @@ class LeakageReport:
             assert self.shared_uniprots == 0, f"{self.shared_uniprots} cibles partagées train/test"
 
 
-def audit_leakage(df: pd.DataFrame, split: Split, *, sample: int = 2000, seed: int = 0) -> LeakageReport:
+def audit_leakage(
+    df: pd.DataFrame, split: Split, *, sample: int = 2000, seed: int = 0
+) -> LeakageReport:
     """Quantifie la fuite résiduelle entre train et test.
 
     La similarité maximale train-test est échantillonnée (O(n*m) exact serait

@@ -10,8 +10,16 @@ from kinoscope.models.model import DTILoss, HybridDTIModel, ModelConfig
 
 @pytest.fixture
 def tiny_cfg() -> ModelConfig:
-    return ModelConfig(hidden_dim=32, gnn_layers=2, plm_dim=64, adapter_layers=1,
-                       adapter_heads=4, ban_heads=2, ban_rank=16, head_hidden=32)
+    return ModelConfig(
+        hidden_dim=32,
+        gnn_layers=2,
+        plm_dim=64,
+        adapter_layers=1,
+        adapter_heads=4,
+        ban_heads=2,
+        ban_rank=16,
+        head_hidden=32,
+    )
 
 
 def make_batch(cfg: ModelConfig, batch_size: int = 4, seed: int = 0) -> dict:
@@ -24,7 +32,10 @@ def make_batch(cfg: ModelConfig, batch_size: int = 4, seed: int = 0) -> dict:
     ei = ei[:, bidx[ei[0]] == bidx[ei[1]]]
     ea = torch.stack([torch.randint(0, d, (ei.size(1),)) for d in cfg.bond_feature_dims], -1)
     return {
-        "x": x, "edge_index": ei, "edge_attr": ea, "batch_index": bidx,
+        "x": x,
+        "edge_index": ei,
+        "edge_attr": ea,
+        "batch_index": bidx,
         "plm_emb": torch.randn(batch_size, cfg.pocket_len, cfg.plm_dim),
         "residue_mask": torch.ones(batch_size, cfg.pocket_len, dtype=torch.bool),
         "assay_type": torch.randint(0, cfg.n_assay_types, (batch_size,)),

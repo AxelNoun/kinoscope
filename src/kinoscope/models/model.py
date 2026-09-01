@@ -30,7 +30,7 @@ Licence : Apache-2.0
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import torch
 import torch.nn as nn
@@ -56,20 +56,20 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 ATOM_FEATURE_DIMS: tuple[int, ...] = (
     120,  # numéro atomique (Z)
-    8,    # degré (nb de voisins lourds)
-    6,    # charge formelle décalée [-2..+3]
-    6,    # hybridation {SP, SP2, SP3, SP3D, SP3D2, other}
-    2,    # aromaticité
-    6,    # nb d'hydrogènes implicites + explicites
-    4,    # tag de chiralité CIP
-    2,    # appartenance à un cycle
-    6,    # taille du plus petit cycle (SSSR)
+    8,  # degré (nb de voisins lourds)
+    6,  # charge formelle décalée [-2..+3]
+    6,  # hybridation {SP, SP2, SP3, SP3D, SP3D2, other}
+    2,  # aromaticité
+    6,  # nb d'hydrogènes implicites + explicites
+    4,  # tag de chiralité CIP
+    2,  # appartenance à un cycle
+    6,  # taille du plus petit cycle (SSSR)
 )
 BOND_FEATURE_DIMS: tuple[int, ...] = (
-    5,    # type de liaison {simple, double, triple, aromatique, other}
-    2,    # conjugaison
-    2,    # appartenance à un cycle
-    6,    # stéréochimie
+    5,  # type de liaison {simple, double, triple, aromatique, other}
+    2,  # conjugaison
+    2,  # appartenance à un cycle
+    6,  # stéréochimie
 )
 
 
@@ -86,8 +86,8 @@ class ModelConfig:
     gnn_jk: bool = True  # Jumping Knowledge : concat des représentations par couche
 
     # --- encodeur protéine ----------------------------------------------------
-    plm_dim: int = 1280           # esm2_t33_650M_UR50D
-    pocket_len: int = 85          # alignement KLIFS
+    plm_dim: int = 1280  # esm2_t33_650M_UR50D
+    pocket_len: int = 85  # alignement KLIFS
     adapter_layers: int = 2
     adapter_heads: int = 8
     adapter_dropout: float = 0.1
@@ -136,7 +136,7 @@ class _CategoricalEncoder(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         # x : [N, n_features] entiers
-        out = self.embeddings[0](x[:, 0])
+        out: Tensor = self.embeddings[0](x[:, 0])
         for i, emb in enumerate(self.embeddings[1:], start=1):
             out = out + emb(x[:, i])
         return out
@@ -207,7 +207,7 @@ class LigandGraphEncoder(nn.Module):
         e = self.bond_encoder(edge_attr)
 
         layer_outputs: list[Tensor] = []
-        for conv, norm in zip(self.convs, self.norms):
+        for conv, norm in zip(self.convs, self.norms, strict=True):
             h_new = conv(h, edge_index, e)
             h_new = norm(h_new)
             h_new = self.dropout(F.relu(h_new))
@@ -216,7 +216,7 @@ class LigandGraphEncoder(nn.Module):
 
         h = torch.cat(layer_outputs, dim=-1) if self.cfg.gnn_jk else h
         h = self.out_proj(h)
-        return to_dense_batch(h, batch)
+        return cast(tuple[Tensor, Tensor], to_dense_batch(h, batch))
 
 
 # --------------------------------------------------------------------------- #
@@ -283,7 +283,7 @@ class PocketPLMEncoder(nn.Module):
         """
         h = self.input_proj(plm_emb) + self.pos_embedding[:, : plm_emb.size(1)]
         h = self.adapter(h, src_key_padding_mask=~residue_mask)
-        return self.out_norm(h)
+        return cast(Tensor, self.out_norm(h))
 
 
 # --------------------------------------------------------------------------- #
@@ -322,9 +322,9 @@ class BilinearAttentionFusion(nn.Module):
 
     def forward(
         self,
-        ligand_repr: Tensor,   # [B, Na, D]
+        ligand_repr: Tensor,  # [B, Na, D]
         protein_repr: Tensor,  # [B, Nr, D]
-        ligand_mask: Tensor,   # [B, Na]
+        ligand_mask: Tensor,  # [B, Na]
         protein_mask: Tensor,  # [B, Nr]
     ) -> tuple[Tensor, Tensor]:
         b, na, _ = ligand_repr.shape
@@ -336,7 +336,7 @@ class BilinearAttentionFusion(nn.Module):
         # Logits d'interaction : [B, H, Na, Nr]
         logits = torch.einsum("bhik,bhjk->bhij", ql, qp) * self.scale
 
-        pair_mask = (ligand_mask[:, None, :, None] & protein_mask[:, None, None, :])
+        pair_mask = ligand_mask[:, None, :, None] & protein_mask[:, None, None, :]
         logits = logits.masked_fill(~pair_mask, float("-inf"))
 
         # Softmax *joint* sur (Na x Nr) : les paires se concurrencent entre elles,
@@ -416,11 +416,11 @@ class HybridDTIModel(nn.Module):
             mu, logvar = affinity[:, 0], torch.zeros_like(affinity[:, 0])
 
         return {
-            "affinity_mu": mu,                        # [B]  pAffinity prédite
-            "affinity_logvar": logvar,                # [B]  incertitude aléatorique
+            "affinity_mu": mu,  # [B]  pAffinity prédite
+            "affinity_logvar": logvar,  # [B]  incertitude aléatorique
             "activity_logit": self.activity_head(z).squeeze(-1),  # [B]
-            "interaction_logits": interaction_logits, # [B, H, Na, Nr]
-            "ligand_mask": ligand_mask,               # [B, Na]
+            "interaction_logits": interaction_logits,  # [B, H, Na, Nr]
+            "ligand_mask": ligand_mask,  # [B, Na]
         }
 
     @torch.inference_mode()
@@ -471,12 +471,12 @@ class DTILoss(nn.Module):
         loss_activity = F.binary_cross_entropy_with_logits(outputs["activity_logit"], y_act)
 
         loss_contact = mu.new_zeros(())
-        if "contact_map" in targets and targets.get("contact_available", None) is not None:
+        if "contact_map" in targets and targets.get("contact_available") is not None:
             avail = targets["contact_available"].bool()
             if avail.any():
                 pred = outputs["interaction_logits"][avail].mean(dim=1)  # [b', Na, Nr]
-                true = targets["contact_map"][avail].float()             # [b', Na, Nr]
-                valid = targets["contact_mask"][avail].bool()             # [b', Na, Nr]
+                true = targets["contact_map"][avail].float()  # [b', Na, Nr]
+                valid = targets["contact_mask"][avail].bool()  # [b', Na, Nr]
                 if valid.any():
                     bce = F.binary_cross_entropy_with_logits(pred, true, reduction="none")
                     loss_contact = (bce * valid).sum() / valid.sum().clamp(min=1)
@@ -508,12 +508,8 @@ if __name__ == "__main__":
     n_atoms_per_mol = [22, 31, 18, 27]
     n_nodes = sum(n_atoms_per_mol)
 
-    x = torch.stack(
-        [torch.randint(0, d, (n_nodes,)) for d in cfg.atom_feature_dims], dim=-1
-    )
-    batch_index = torch.repeat_interleave(
-        torch.arange(B), torch.tensor(n_atoms_per_mol)
-    )
+    x = torch.stack([torch.randint(0, d, (n_nodes,)) for d in cfg.atom_feature_dims], dim=-1)
+    batch_index = torch.repeat_interleave(torch.arange(B), torch.tensor(n_atoms_per_mol))
     n_edges = 2 * n_nodes
     edge_index = torch.randint(0, n_nodes, (2, n_edges))
     # On garde les arêtes intra-molécule (le batching PyG est bloc-diagonal).

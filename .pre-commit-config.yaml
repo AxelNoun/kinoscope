@@ -21,13 +21,21 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+  # mypy tourne dans l'environnement du projet, pas dans un venv isolé. L'analyse
+  # a besoin du stack complet (torch, numpy, pandas-stubs, pydantic) : le miroir
+  # `mirrors-mypy`, qui ne peut installer que quelques paquets de stubs, signalait
+  # 36 imports introuvables au lieu des vraies erreurs. `language: system` garantit
+  # que le hook et `make typecheck` rendent le même verdict.
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies: [types-requests, types-PyYAML]
-        args: [--config-file=pyproject.toml]
+        name: mypy (environnement du projet)
+        entry: mypy
+        language: system
+        args: [src]
+        pass_filenames: false
         files: ^src/
+        types: [python]
 
   - repo: https://github.com/kynan/nbstripout
     rev: 0.7.1

@@ -37,7 +37,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--targets", type=Path, default=Path("data/processed/targets.parquet"))
     p.add_argument("--out", type=Path, default=Path("data/processed/pockets.lmdb"))
     p.add_argument("--model", default=MODEL_NAME)
-    p.add_argument("--layer", type=int, default=33, help="Couche de sortie. 33 = dernière ; 30-32 corrèlent mieux avec la structure.")
+    p.add_argument(
+        "--layer",
+        type=int,
+        default=33,
+        help="Couche de sortie. 33 = dernière ; 30-32 corrèlent mieux avec la structure.",
+    )
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--max-length", type=int, default=1024)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -63,22 +68,36 @@ def main() -> None:
     rows = df.to_dict("records")
     for start in tqdm(range(0, len(rows), args.batch_size), desc="ESM-2"):
         chunk = rows[start : start + args.batch_size]
-        enc = tokenizer([r["seq_domain"] for r in chunk], return_tensors="pt",
-                        padding=True, truncation=True, max_length=args.max_length).to(args.device)
+        enc = tokenizer(
+            [r["seq_domain"] for r in chunk],
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=args.max_length,
+        ).to(args.device)
         hidden = model(**enc).hidden_states[args.layer]  # [B, L+2, 1280]
 
         with env.begin(write=True) as txn:
             for i, row in enumerate(chunk):
                 # +1 : le token <cls> décale l'indexation des résidus de 1.
-                idx = np.asarray(json.loads(row["klifs_indices"]) if isinstance(row["klifs_indices"], str) else row["klifs_indices"])
-                mask = idx >= 0                       # -1 = gap dans l'alignement KLIFS
+                idx = np.asarray(
+                    json.loads(row["klifs_indices"])
+                    if isinstance(row["klifs_indices"], str)
+                    else row["klifs_indices"]
+                )
+                mask = idx >= 0  # -1 = gap dans l'alignement KLIFS
                 emb = np.zeros((POCKET_LEN, PLM_DIM), dtype=np.float16)
                 valid = torch.as_tensor(idx[mask] + 1, device=hidden.device)
                 emb[mask] = hidden[i, valid].to(torch.float16).cpu().numpy()
 
                 txn.put(row["uniprot"].encode(), pickle.dumps({"emb": emb, "mask": mask}))
-                stats.append({"uniprot": row["uniprot"], "n_valid": int(mask.sum()),
-                              "norm_mean": float(np.linalg.norm(emb[mask], axis=-1).mean())})
+                stats.append(
+                    {
+                        "uniprot": row["uniprot"],
+                        "n_valid": int(mask.sum()),
+                        "norm_mean": float(np.linalg.norm(emb[mask], axis=-1).mean()),
+                    }
+                )
 
     env.close()
     s = pd.DataFrame(stats)

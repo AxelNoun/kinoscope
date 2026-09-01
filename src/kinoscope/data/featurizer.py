@@ -49,24 +49,24 @@ def _ring_size_index(mol: Chem.Mol, atom_idx: int) -> int:
 
 def atom_features(atom: Chem.Atom, mol: Chem.Mol) -> list[int]:
     return [
-        min(atom.GetAtomicNum(), 119),                       # dim 120
-        min(atom.GetDegree(), 7),                            # dim 8
-        min(max(atom.GetFormalCharge() + 2, 0), 5),          # dim 6, plage [-2, +3]
-        HYBRIDIZATION.get(atom.GetHybridization(), 0),       # dim 6
-        int(atom.GetIsAromatic()),                           # dim 2
-        min(atom.GetTotalNumHs(), 5),                        # dim 6
-        CHIRAL_TAG.get(atom.GetChiralTag(), 3),              # dim 4
-        int(atom.IsInRing()),                                # dim 2
-        _ring_size_index(mol, atom.GetIdx()),                # dim 6
+        min(atom.GetAtomicNum(), 119),  # dim 120
+        min(atom.GetDegree(), 7),  # dim 8
+        min(max(atom.GetFormalCharge() + 2, 0), 5),  # dim 6, plage [-2, +3]
+        HYBRIDIZATION.get(atom.GetHybridization(), 0),  # dim 6
+        int(atom.GetIsAromatic()),  # dim 2
+        min(atom.GetTotalNumHs(), 5),  # dim 6
+        CHIRAL_TAG.get(atom.GetChiralTag(), 3),  # dim 4
+        int(atom.IsInRing()),  # dim 2
+        _ring_size_index(mol, atom.GetIdx()),  # dim 6
     ]
 
 
 def bond_features(bond: Chem.Bond) -> list[int]:
     return [
-        BOND_TYPE.get(bond.GetBondType(), 0),   # dim 5
-        int(bond.GetIsConjugated()),            # dim 2
-        int(bond.IsInRing()),                   # dim 2
-        min(int(bond.GetStereo()), 5),          # dim 6
+        BOND_TYPE.get(bond.GetBondType(), 0),  # dim 5
+        int(bond.GetIsConjugated()),  # dim 2
+        int(bond.IsInRing()),  # dim 2
+        min(int(bond.GetStereo()), 5),  # dim 6
     ]
 
 

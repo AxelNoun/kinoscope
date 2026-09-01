@@ -13,8 +13,10 @@ partiellement la validité conditionnelle.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 
 @dataclass
@@ -24,20 +26,31 @@ class ConformalCalibrator:
     group_quantiles_: dict[str, float] | None = None
 
     @staticmethod
-    def _nonconformity(y: np.ndarray, mu: np.ndarray, sigma: np.ndarray) -> np.ndarray:
+    def _nonconformity(
+        y: npt.NDArray[np.float64],
+        mu: npt.NDArray[np.float64],
+        sigma: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]:
         """Score normalisé |y - mu| / sigma : produit des intervalles adaptatifs,
         plus larges là où le modèle se déclare lui-même incertain."""
-        return np.abs(y - mu) / np.clip(sigma, 1e-6, None)
+        scores: npt.NDArray[np.float64] = np.abs(y - mu) / np.clip(sigma, 1e-6, None)
+        return scores
 
     @staticmethod
-    def _conformal_quantile(scores: np.ndarray, alpha: float) -> float:
+    def _conformal_quantile(scores: npt.NDArray[np.float64], alpha: float) -> float:
         n = len(scores)
         if n == 0:
             return float("nan")
         level = min(1.0, np.ceil((n + 1) * (1 - alpha)) / n)  # correction d'échantillon fini
         return float(np.quantile(scores, level, method="higher"))
 
-    def fit(self, y: np.ndarray, mu: np.ndarray, sigma: np.ndarray, groups: np.ndarray | None = None):
+    def fit(
+        self,
+        y: npt.NDArray[np.float64],
+        mu: npt.NDArray[np.float64],
+        sigma: npt.NDArray[np.float64],
+        groups: npt.NDArray[Any] | None = None,
+    ) -> ConformalCalibrator:
         scores = self._nonconformity(y, mu, sigma)
         self.quantile_ = self._conformal_quantile(scores, self.alpha)
         if groups is not None:
@@ -53,7 +66,12 @@ class ConformalCalibrator:
                 )
         return self
 
-    def predict_interval(self, mu: np.ndarray, sigma: np.ndarray, groups: np.ndarray | None = None):
+    def predict_interval(
+        self,
+        mu: npt.NDArray[np.float64],
+        sigma: npt.NDArray[np.float64],
+        groups: npt.NDArray[Any] | None = None,
+    ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
         if groups is not None and self.group_quantiles_:
             q = np.array([self.group_quantiles_.get(str(g), self.quantile_) for g in groups])
         else:
@@ -62,7 +80,11 @@ class ConformalCalibrator:
         return mu - half, mu + half
 
 
-def coverage_metrics(y: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> dict[str, float]:
+def coverage_metrics(
+    y: npt.NDArray[np.float64],
+    lo: npt.NDArray[np.float64],
+    hi: npt.NDArray[np.float64],
+) -> dict[str, float]:
     """PICP = couverture empirique ; MPIW = largeur moyenne d'intervalle.
     Un PICP correct avec un MPIW énorme est un modèle inutile : rapporter les deux."""
     inside = (y >= lo) & (y <= hi)
