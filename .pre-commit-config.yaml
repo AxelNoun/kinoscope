@@ -11,6 +11,11 @@ repos:
       - id: check-toml
       - id: check-added-large-files
         args: ["--maxkb=500"]   # data belongs to DVC, never to git
+        # `uv.lock` is 502 KB of resolved dependency metadata for 247 packages. The
+        # 500 KB ceiling exists to keep *data* out of git; raising it for the whole
+        # repository to accommodate one legitimate text file would weaken the guard
+        # everywhere. The exception is named instead, so it stays visible.
+        exclude: ^uv\.lock$
       - id: check-merge-conflict
       - id: debug-statements
 
@@ -51,7 +56,11 @@ repos:
       - id: zizmor
         args: ["--offline"]
 
+  # Without `--baseline` the hook has no record of what has already been reviewed:
+  # every audited false positive comes back at the next commit. The baseline was
+  # generated on a tree that gitleaks had already cleared over the full history.
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
       - id: detect-secrets
+        args: ["--baseline", ".secrets.baseline"]

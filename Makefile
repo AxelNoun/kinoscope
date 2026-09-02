@@ -1,6 +1,13 @@
 .PHONY: help setup data embeddings train eval serve test lint typecheck check docker clean
 
-PYTHON ?= python3
+# The quality gate MUST run the pinned tools, not whatever happens to be first on
+# PATH. `make lint` used to call a bare `ruff`, which on a machine with a global
+# install resolved to ruff 0.15.10 while the project pins 0.6.4 — the two disagree
+# (RUF022, RUF046), so `make check` and CI returned different verdicts on the same
+# tree. Going through `$(PYTHON) -m` ties every tool to the interpreter, and an
+# interpreter without the project installed now fails loudly instead of quietly
+# giving the wrong answer.
+PYTHON ?= python
 EXPERIMENT ?= main
 
 help:
@@ -26,16 +33,16 @@ serve:  ## Start the inference API locally
 	uvicorn kinoscope.serving.api:app --host 0.0.0.0 --port 8000 --reload
 
 test:  ## Run the fast test suite
-	pytest -n auto -m "not slow and not network"
+	$(PYTHON) -m pytest -n auto -m "not slow and not network"
 
 test-all:  ## Run every test, including slow and networked ones
-	pytest -n auto
+	$(PYTHON) -m pytest -n auto
 
 lint:
-	ruff check src tests scripts && ruff format --check src tests scripts
+	$(PYTHON) -m ruff check src tests scripts && $(PYTHON) -m ruff format --check src tests scripts
 
 typecheck:
-	mypy src
+	$(PYTHON) -m mypy src
 
 check: lint typecheck test  ## Full gate: this MUST pass before ticking any MASTER_PLAN box
 
