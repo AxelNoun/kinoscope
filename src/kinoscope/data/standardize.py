@@ -78,13 +78,16 @@ def standardize(smiles: str, *, canonical_tautomer: bool = True) -> Standardized
         return None
 
     if "." in Chem.MolToSmiles(mol):
+        logger.debug("rejet %s: %s", smiles, RejectionReason.DISCONNECTED)
         return None
     if any(a.GetAtomicNum() not in ALLOWED_ELEMENTS for a in mol.GetAtoms()):
+        logger.debug("rejet %s: %s", smiles, RejectionReason.FORBIDDEN_ELEMENT)
         return None
 
     n_heavy = mol.GetNumHeavyAtoms()
     mw = Descriptors.MolWt(mol)
     if not (MIN_HEAVY_ATOMS <= n_heavy <= MAX_HEAVY_ATOMS) or mw > MAX_MOLWT:
+        logger.debug("rejet %s: %s", smiles, RejectionReason.SIZE_OUT_OF_RANGE)
         return None
 
     canonical = Chem.MolToSmiles(mol, canonical=True)

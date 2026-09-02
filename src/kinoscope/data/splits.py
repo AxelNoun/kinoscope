@@ -216,7 +216,20 @@ def audit_leakage(
     te_s = rng.choice(te_smi, size=min(sample, len(te_smi)), replace=False)
     fp_tr, fp_te = morgan_fingerprints(list(tr_s)), morgan_fingerprints(list(te_s))
 
-    nn_sims = np.array([max(DataStructs.BulkTanimotoSimilarity(f, fp_tr)) for f in fp_te])
+    # Partition dégénérée (train ou test vide) : la similarité au plus proche voisin
+    # n'est pas définie. On rapporte NaN plutôt que de lever, et surtout plutôt que
+    # de renvoyer 0.0 — qui se lirait à tort comme « aucune fuite détectée ».
+    if not fp_tr or not fp_te:
+        logger.warning(
+            "audit de fuite sur une partition dégénérée (train=%d, test=%d composés uniques) : "
+            "similarité au plus proche voisin non définie",
+            len(fp_tr),
+            len(fp_te),
+        )
+        nn_sims = np.array([], dtype=np.float64)
+    else:
+        nn_sims = np.array([max(DataStructs.BulkTanimotoSimilarity(f, fp_tr)) for f in fp_te])
+
     return LeakageReport(
         n_train=len(split.train),
         n_valid=len(split.valid),
@@ -224,8 +237,8 @@ def audit_leakage(
         shared_inchikeys=shared_ik,
         shared_uniprots=shared_up,
         shared_scaffolds=shared_sc,
-        max_tanimoto_train_test=float(nn_sims.max()),
-        frac_test_above_0_7=float((nn_sims > 0.7).mean()),
+        max_tanimoto_train_test=float(nn_sims.max()) if nn_sims.size else float("nan"),
+        frac_test_above_0_7=float((nn_sims > 0.7).mean()) if nn_sims.size else float("nan"),
     )
 
 

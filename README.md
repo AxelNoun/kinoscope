@@ -8,6 +8,37 @@
 
 ---
 
+## État du projet
+
+**Dépôt de recherche en cours de construction — 3 étapes sur 58 du [`MASTER_PLAN.md`](MASTER_PLAN.md) sont terminées.**
+Le squelette, l'outillage qualité et le déterminisme sont en place et vérifiés ; la science ne l'est pas encore.
+
+Ce qui fonctionne aujourd'hui :
+
+- `make check` sort en 0 — ruff, `mypy --strict`, 97 tests, couverture 84 %.
+- Les six stratégies de partitionnement, l'audit de fuite, les métriques, la calibration
+  conforme, le domaine d'applicabilité et la standardisation RDKit sont implémentés et testés.
+
+Ce qui ne fonctionne pas encore, et qu'il faut savoir avant de cloner :
+
+- **Aucun modèle n'a été entraîné.** Tous les chiffres du tableau ci-dessous sont des `TBD`.
+- **La composition Hydra n'aboutit pas** : `configs/config.yaml` déclare les groupes
+  `data: chembl_kinase`, `split: scaffold` et `trainer: single_gpu`, dont les fichiers seront
+  écrits aux phases 1, 4 et 5.
+- **`dvc repro` échoue** : `dvc.yaml` décrit le pipeline cible, mais cinq de ses dépendances
+  (`scripts/download_sources.py`, `scripts/build_dataset.py`, `scripts/train.py`,
+  `src/kinoscope/data/sources/klifs.py`, `params.yaml`) relèvent d'étapes non faites, et DVC
+  n'est pas initialisé.
+- **Défaut ouvert** : `_group_split` trie chaque compartiment après l'avoir mélangé, ce qui rend
+  l'argument `seed` sans effet sur les splits par groupe (`scaffold`, `butina`, `cold_target`,
+  `cold_pair`). Tout intervalle de confiance calculé sur plusieurs graines pour ces régimes serait
+  artificiellement étroit. Le test `test_group_splits_should_depend_on_the_seed` documente le
+  défaut en `xfail(strict=True)` ; la correction relève de l'étape 4.1.
+- **Dépendances** : les versions épinglées datent de septembre 2024. `pip-audit` rapporte
+  95 vulnérabilités connues dans 12 paquets. À réexaminer avant tout déploiement.
+
+---
+
 ## Le problème
 
 Les performances DTI publiées sur Davis et KIBA sont obtenues sous partition aléatoire.

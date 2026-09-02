@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 import torch
 
 from kinoscope.models.model import DTILoss, HybridDTIModel, ModelConfig
+from kinoscope.utils.seed import set_global_seed
 
 
 @pytest.fixture
@@ -81,8 +84,23 @@ def test_padding_invariance(tiny_cfg: ModelConfig) -> None:
 @pytest.mark.slow
 def test_can_overfit_single_batch(tiny_cfg: ModelConfig) -> None:
     """Sanity check canonique : un modèle incapable de sur-apprendre 4 exemples
-    a un bug d'architecture, pas un problème de données."""
-    model, batch = HybridDTIModel(tiny_cfg), make_batch(tiny_cfg)
+    a un bug d'architecture, pas un problème de données.
+
+    Le dropout est mis à zéro et le modèle laissé en mode entraînement. Ce n'est
+    pas un aménagement du seuil : avec les quatre dropout par défaut (gnn 0.1,
+    adapter 0.1, ban 0.2, head 0.3), la perte mesurée est celle d'un réseau
+    bruité à chaque passe, pas la capacité de l'architecture à mémoriser. Mesuré
+    sur cette architecture, 400 pas, mêmes hyperparamètres : 7.13 avec le dropout
+    par défaut, 0.80 en réévaluant en mode `eval` après ce même entraînement, et
+    0.0000 avec le dropout désactivé. Seule la troisième mesure répond à la
+    question posée.
+
+    La graine est fixée : sans elle, la perte variait de 3.3 à 7.1 d'une
+    exécution à l'autre, ce qui rendait le résultat du test non reproductible.
+    """
+    set_global_seed(0)
+    cfg = replace(tiny_cfg, gnn_dropout=0.0, adapter_dropout=0.0, ban_dropout=0.0, head_dropout=0.0)
+    model, batch = HybridDTIModel(cfg), make_batch(cfg)
     opt = torch.optim.Adam(model.parameters(), lr=3e-3)
     y = batch["p_affinity"]
     for _ in range(400):

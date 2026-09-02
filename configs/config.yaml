@@ -8,7 +8,7 @@ defaults:
 
 seed: 42
 paths:
-  root: ${oc.env:PWD}
+  root: ${oc.env:PWD,.}
   processed: ${paths.root}/data/processed
   artifacts: ${paths.root}/artifacts
   pockets_lmdb: ${paths.processed}/pockets.lmdb
