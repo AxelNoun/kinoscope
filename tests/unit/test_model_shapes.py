@@ -1,4 +1,4 @@
-"""Contrat de shapes, flux de gradient, et capacité d'apprentissage du modèle."""
+"""Shape contract, gradient flow, and the model's capacity to learn."""
 
 from __future__ import annotations
 
@@ -66,13 +66,13 @@ def test_all_parameters_receive_gradient(tiny_cfg: ModelConfig) -> None:
     model, batch = HybridDTIModel(tiny_cfg), make_batch(tiny_cfg)
     DTILoss(tiny_cfg)(model(batch), batch)["loss"].backward()
     dead = [n for n, p in model.named_parameters() if p.requires_grad and p.grad is None]
-    assert not dead, f"paramètres sans gradient (branche morte): {dead}"
+    assert not dead, f"parameters with no gradient (dead branch): {dead}"
 
 
 def test_padding_invariance(tiny_cfg: ModelConfig) -> None:
-    """Masquer des positions de poche supplémentaires ne doit pas modifier la
-    prédiction issue des positions restantes de façon incohérente : on vérifie
-    surtout qu'aucun NaN n'apparaît quand le masque est partiel."""
+    """Masking additional pocket positions must not change the prediction from the
+    remaining positions incoherently; above all, no NaN may appear when the mask
+    is partial."""
     model = HybridDTIModel(tiny_cfg).eval()
     batch = make_batch(tiny_cfg)
     batch["residue_mask"][:, 40:] = False
@@ -83,20 +83,19 @@ def test_padding_invariance(tiny_cfg: ModelConfig) -> None:
 
 @pytest.mark.slow
 def test_can_overfit_single_batch(tiny_cfg: ModelConfig) -> None:
-    """Sanity check canonique : un modèle incapable de sur-apprendre 4 exemples
-    a un bug d'architecture, pas un problème de données.
+    """Canonical sanity check: a model unable to overfit four examples has an
+    architecture bug, not a data problem.
 
-    Le dropout est mis à zéro et le modèle laissé en mode entraînement. Ce n'est
-    pas un aménagement du seuil : avec les quatre dropout par défaut (gnn 0.1,
-    adapter 0.1, ban 0.2, head 0.3), la perte mesurée est celle d'un réseau
-    bruité à chaque passe, pas la capacité de l'architecture à mémoriser. Mesuré
-    sur cette architecture, 400 pas, mêmes hyperparamètres : 7.13 avec le dropout
-    par défaut, 0.80 en réévaluant en mode `eval` après ce même entraînement, et
-    0.0000 avec le dropout désactivé. Seule la troisième mesure répond à la
-    question posée.
+    Dropout is set to zero and the model left in training mode. This is not a
+    relaxation of the threshold: with the four default dropouts (gnn 0.1, adapter
+    0.1, ban 0.2, head 0.3), the measured loss is that of a network perturbed on
+    every pass, not the architecture's capacity to memorise. Measured on this
+    architecture, 400 steps, identical hyperparameters: 7.13 with default dropout,
+    0.80 re-evaluated in `eval` mode after that same training, and 0.0000 with
+    dropout disabled. Only the third measurement answers the question asked.
 
-    La graine est fixée : sans elle, la perte variait de 3.3 à 7.1 d'une
-    exécution à l'autre, ce qui rendait le résultat du test non reproductible.
+    The seed is fixed: without it the loss varied from 3.3 to 7.1 between runs,
+    making the test result irreproducible.
     """
     set_global_seed(0)
     cfg = replace(tiny_cfg, gnn_dropout=0.0, adapter_dropout=0.0, ban_dropout=0.0, head_dropout=0.0)
@@ -108,4 +107,4 @@ def test_can_overfit_single_batch(tiny_cfg: ModelConfig) -> None:
         loss = torch.nn.functional.mse_loss(model(batch)["affinity_mu"], y)
         loss.backward()
         opt.step()
-    assert loss.item() < 0.05, f"impossible de sur-apprendre 4 exemples (loss={loss.item():.4f})"
+    assert loss.item() < 0.05, f"cannot overfit four examples (loss={loss.item():.4f})"

@@ -35,7 +35,7 @@ Reporting that collapse *is* the result.
 
 ## What is built and verified
 
-`make check` exits 0: ruff, `mypy --strict`, 97 tests, 84 % branch coverage.
+`make check` exits 0: ruff, `mypy --strict`, 98 tests, 84 % branch coverage.
 
 | Component | State | Where |
 |---|---|---|
@@ -92,12 +92,15 @@ never typed by hand.
 
 Part of the point of this repository is that the failures are visible.
 
-**`_group_split` ignores its seed.** Each bucket is shuffled and then sorted, which annuls
-the shuffle, and the group-to-bucket assignment is otherwise deterministic. Measured: one
-distinct test partition across four seeds for `scaffold` and `cold_target`, against four for
-`random_split`. Any confidence interval computed across seeds for the group-based regimes
-would therefore be artificially narrow. Documented by an `xfail(strict=True)` test; the fix
-belongs to a later roadmap step because it moves every downstream number.
+**`_group_split` ignored its seed** — found by a property test, since fixed. Each bucket was
+shuffled and then sorted, which annuls the shuffle, and the group-to-bucket assignment was
+otherwise deterministic. Measured before the fix: one distinct test partition across four
+seeds for `scaffold` and `cold_target`, against four for `random_split`. A confidence
+interval computed across seeds for the group-based regimes was therefore aggregating
+identical replicates and was artificially narrow — it measured initialisation variance while
+being reported as covering split variance too. The fix shuffles the group list before a
+*stable* sort by descending size, so the seed breaks ties between equal-sized groups without
+disturbing the largest-first order the greedy bin-packing relies on.
 
 **The single-batch overfitting check was measuring noise.** The canonical architecture sanity
 check trains 400 steps on four examples and asserts a loss below 0.05. It failed — but with
@@ -149,8 +152,7 @@ done. Known gaps, stated so that nobody discovers them the hard way:
 
 - **No model has been trained.** No number in this repository is a measured result.
 - **Hydra composition does not resolve.** `configs/config.yaml` declares the groups
-  `data: chembl_kinase`, `split: scaffold` and `trainer: single_gpu`, whose files belong to
-  later phases.
+  `data: chembl_kinase` and `trainer: single_gpu`, whose files belong to later phases.
 - **`dvc repro` fails.** `dvc.yaml` describes the target pipeline, but five of its
   dependencies belong to unwritten steps and DVC is not initialised.
 

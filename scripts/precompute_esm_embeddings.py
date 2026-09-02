@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Pré-calcul et mise en cache des représentations ESM-2 des poches KLIFS.
+"""Precompute and cache ESM-2 representations of KLIFS pockets.
 
-Exécuté UNE FOIS. Sortie : un LMDB {accession UniProt -> float16 [85, 1280]}.
-~500 kinases x 85 x 1280 x 2 o ~= 110 Mo, entièrement chargeable en RAM à
-l'inférence. C'est ce qui rend l'entraînement ~10^3 fois moins coûteux qu'un
-forward pass du PLM à chaque batch.
+Run ONCE. Output: an LMDB mapping {UniProt accession -> float16 [85, 1280]}.
+About 500 kinases x 85 x 1280 x 2 bytes ~= 110 MB, entirely loadable into RAM at
+inference time. This is what makes training ~1e3 times cheaper than running a PLM
+forward pass on every batch.
 
 Usage:
     python scripts/precompute_esm_embeddings.py \
@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
         "--layer",
         type=int,
         default=33,
-        help="Couche de sortie. 33 = dernière ; 30-32 corrèlent mieux avec la structure.",
+        help="Output layer. 33 is the last; 30-32 correlate better with structure.",
     )
     p.add_argument("--batch-size", type=int, default=4)
     p.add_argument("--max-length", type=int, default=1024)
@@ -79,7 +79,7 @@ def main() -> None:
 
         with env.begin(write=True) as txn:
             for i, row in enumerate(chunk):
-                # +1 : le token <cls> décale l'indexation des résidus de 1.
+                # +1: the <cls> token shifts residue indexing by one.
                 idx = np.asarray(
                     json.loads(row["klifs_indices"])
                     if isinstance(row["klifs_indices"], str)
@@ -101,12 +101,12 @@ def main() -> None:
 
     env.close()
     s = pd.DataFrame(stats)
-    # Garde-fous d'intégrité : un embedding nul ou explosif signale un mauvais
-    # alignement KLIFS ou une troncature de séquence silencieuse.
+    # Integrity guards: a zero or exploding embedding indicates a bad KLIFS
+    # alignment or a silent sequence truncation.
     assert not s["norm_mean"].isna().any(), "NaN dans les embeddings"
-    assert (s["n_valid"] >= 50).all(), "cible avec < 50 positions KLIFS alignées"
+    assert (s["n_valid"] >= 50).all(), "target with fewer than 50 aligned KLIFS positions"
     s.to_csv(args.out.with_suffix(".stats.csv"), index=False)
-    print(f"{len(s)} cibles écrites -> {args.out}")
+    print(f"{len(s)} targets written -> {args.out}")
     print(s[["n_valid", "norm_mean"]].describe())
 
 

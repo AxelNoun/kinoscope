@@ -1,3 +1,10 @@
+# DECLARED, NOT YET EXECUTABLE. This DAG is the target shape of the pipeline; it is
+# wired up by step 0.6 of the MASTER_PLAN, which is not done. Five of the paths below
+# do not exist yet — scripts/download_sources.py, scripts/build_dataset.py,
+# scripts/train.py, src/kinoscope/data/sources/klifs.py, params.yaml — and there is
+# neither .dvc/ nor dvc.lock, so `dvc repro` fails on the first stage. Do not read
+# this file as a provenance guarantee until 0.6 is ticked.
+
 stages:
   ingest:
     cmd: python scripts/download_sources.py --out data/raw

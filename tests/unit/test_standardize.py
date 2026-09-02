@@ -1,9 +1,8 @@
-"""Standardisation chimique : sel neutralisé, rejets, idempotence.
+"""Chemical standardisation: salt neutralised, rejections, idempotence.
 
-L'idempotence n'est pas une coquetterie : la standardisation est appliquée à
-l'entraînement puis de nouveau à l'inférence. Si `standardize` n'est pas un
-point fixe, les deux chemins divergent et le modèle voit en production des
-molécules qu'il n'a jamais vues à l'entraînement.
+Idempotence is not a nicety: standardisation runs at training time and again at
+inference time. If `standardize` is not a fixed point, the two paths diverge and
+the model sees molecules in production that it never saw in training.
 """
 
 from __future__ import annotations
@@ -20,18 +19,18 @@ from kinoscope.data.standardize import (
     standardize_batch,
 )
 
-# Imatinib base. Le mésylate est le même principe actif accompagné d'un
-# contre-ion méthanesulfonate : après sélection du plus gros fragment, les deux
-# doivent produire un InChIKey identique.
+# Imatinib free base. The mesylate is the same active ingredient accompanied by a
+# methanesulfonate counter-ion: after largest-fragment selection, both must yield
+# an identical InChIKey.
 IMATINIB = "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1"
 IMATINIB_MESYLATE = f"{IMATINIB}.CS(=O)(=O)O"
 
-# Jeu de SMILES valides et standardisables, utilisé comme population de tirage
-# pour le test d'idempotence.
+# Valid, standardisable SMILES used as the sampling population for the idempotence
+# property.
 VALID_SMILES: list[str] = [
     IMATINIB,
-    "CC(=O)Oc1ccccc1C(=O)O",  # aspirine
-    "CN1C=NC2=C1C(=O)N(C)C(=O)N2C",  # caféine
+    "CC(=O)Oc1ccccc1C(=O)O",  # aspirin
+    "CN1C=NC2=C1C(=O)N(C)C(=O)N2C",  # caffeine
     "c1ccc2ccccc2c1CCC",
     "c1ccc2nccnc2c1CC",
     "C1CCNCC1CCC",
@@ -51,25 +50,25 @@ def test_mesylate_salt_reduces_to_the_free_base() -> None:
 def test_returns_a_fully_populated_record() -> None:
     result = standardize(IMATINIB)
     assert isinstance(result, StandardizedMolecule)
-    assert result.inchikey.count("-") == 2, "InChIKey attendu sous la forme AAA-BBB-C"
-    # Le squelette est la première couche de l'InChIKey, sans stéréochimie.
+    assert result.inchikey.count("-") == 2, "InChIKey expected in AAA-BBB-C form"
+    # The skeleton is the first InChIKey layer, without stereochemistry.
     assert result.inchikey.startswith(result.inchikey_skeleton)
     assert result.n_heavy_atoms > MIN_HEAVY_ATOMS
     assert result.mol_weight > 0.0
 
 
 @pytest.mark.parametrize(
-    ("smiles", "motif"),
+    ("smiles", "reason"),
     [
-        ("[Na+].[Cl-]", "sel inorganique : aucun fragment organique retenu"),
-        ("CC", "trop peu d'atomes lourds"),
-        ("C" * (MAX_HEAVY_ATOMS + 20), "trop d'atomes lourds"),
-        ("[Pt](Cl)(Cl)(N)N", "élément hors liste autorisée"),
-        ("ceci_n_est_pas_un_smiles", "non parsable"),
+        ("[Na+].[Cl-]", "inorganic salt: no organic fragment retained"),
+        ("CC", "too few heavy atoms"),
+        ("C" * (MAX_HEAVY_ATOMS + 20), "too many heavy atoms"),
+        ("[Pt](Cl)(Cl)(N)N", "element outside the allowed list"),
+        ("this_is_not_a_smiles", "unparsable"),
     ],
 )
-def test_rejects_out_of_domain_inputs(smiles: str, motif: str) -> None:
-    assert standardize(smiles) is None, f"aurait dû être rejeté ({motif})"
+def test_rejects_out_of_domain_inputs(smiles: str, reason: str) -> None:
+    assert standardize(smiles) is None, f"should have been rejected ({reason})"
 
 
 def test_batch_preserves_order_and_marks_rejects() -> None:
@@ -87,8 +86,8 @@ def test_batch_preserves_order_and_marks_rejects() -> None:
 def test_standardization_is_idempotent(smiles: str) -> None:
     """`standardize(standardize(x)) == standardize(x)`.
 
-    Vérifié sur la sortie canonique, pas sur l'entrée : c'est la propriété de
-    point fixe qui garantit la parité entraînement/inférence.
+    Checked on the canonical output rather than the input: it is that fixed-point
+    property which guarantees training/inference parity.
     """
     once = standardize(smiles)
     assert once is not None

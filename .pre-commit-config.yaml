@@ -42,6 +42,15 @@ repos:
     hooks:
       - id: nbstripout   # notebooks are committed without outputs
 
+  # Static analysis of the workflows themselves. `--offline` keeps the hook from
+  # needing the network or a GitHub token locally; the CI job runs the same version
+  # without that flag. Pinned to the exact release, like every other hook here.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.30.0
+    hooks:
+      - id: zizmor
+        args: ["--offline"]
+
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:

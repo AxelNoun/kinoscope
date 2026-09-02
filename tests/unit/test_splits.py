@@ -1,5 +1,5 @@
-"""Invariants des splits. Ces assertions sont la garantie scientifique du projet :
-si elles tombent, tous les chiffres du README sont invalides."""
+"""Split invariants. These assertions are the project's scientific guarantee: if
+they fall, every figure in the README is invalid."""
 
 from __future__ import annotations
 
@@ -20,25 +20,25 @@ from kinoscope.data.splits import (
     temporal_split,
 )
 
-# Dix-sept systèmes cycliques distincts, chacun décliné en quatre longueurs de
-# chaîne alkyle. Trois propriétés de cette liste sont délibérées.
+# Seventeen distinct ring systems, each declined in four alkyl-chain lengths.
+# Three properties of this list are deliberate.
 #
-# 1. Le squelette de Bemis-Murcko dépouille la chaîne alkyle : les quatre variantes
-#    d'un cœur partagent donc un seul squelette. Le nombre de cœurs fixe le nombre
-#    de groupes disponibles pour le remplissage glouton. Avec cinq cœurs seulement,
-#    une partition 80/10/10 sur 300 lignes donnait train=240, valid=60, test=0 : le
-#    test set était vide et les assertions de disjonction passaient à vide.
-# 2. La quinoxaline est écrite depuis le cycle benzénique (`c1ccc2nccnc2c1`) et non
-#    depuis l'azote (`c1cnc2ccccc2n1`). Les deux graphies désignent la même molécule
-#    — InChIKey XSCHRSMBECNVNS-UHFFFAOYSA-N — mais la seconde place un azote
-#    aromatique en dernière position : la concaténation du suffixe alkyle y produit
-#    un N substitué non kékulisable, et `MolFromSmiles` renvoie `None`.
-# 3. Cyclopentane, cyclohexane et cycloheptane non substitués ont des empreintes
-#    ECFP4 **identiques** : tous leurs atomes présentent le même environnement à
-#    rayon 2. Leur similarité de Tanimoto vaut 1.0 malgré des squelettes disjoints.
-#    On les conserve : c'est précisément le phénomène que l'audit de fuite doit
-#    savoir détecter, et l'illustration de la thèse du projet — la disjonction de
-#    squelettes ne suffit pas à garantir un test set cold-drug.
+# 1. The Bemis-Murcko scaffold strips the alkyl chain, so the four variants of one
+#    core share a single scaffold. The number of cores therefore fixes the number
+#    of groups available to greedy bin-packing. With only five cores, an 80/10/10
+#    split over 300 rows produced train=240, valid=60, test=0: the test set was
+#    empty and the disjointness assertions passed vacuously.
+# 2. Quinoxaline is written from the benzene ring (`c1ccc2nccnc2c1`) rather than
+#    from the nitrogen (`c1cnc2ccccc2n1`). Both spellings denote the same molecule
+#    — InChIKey XSCHRSMBECNVNS-UHFFFAOYSA-N — but the second puts an aromatic
+#    nitrogen last, so appending the alkyl suffix yields a non-kekulisable
+#    substituted N and `MolFromSmiles` returns `None`.
+# 3. Unsubstituted cyclopentane, cyclohexane and cycloheptane have **identical**
+#    ECFP4 fingerprints: every one of their atoms has the same radius-2
+#    environment. Their Tanimoto similarity is 1.0 despite disjoint scaffolds.
+#    They are kept on purpose: this is exactly the phenomenon a leakage audit must
+#    catch, and the illustration of the project's claim — scaffold disjointness
+#    does not guarantee a cold-drug test set.
 _TOY_CORES = [
     "c1ccccc1",
     "c1ccncc1",
@@ -68,9 +68,9 @@ def toy_df() -> pd.DataFrame:
     for i in range(300):
         core = _TOY_CORES[i % len(_TOY_CORES)]
         smi = f"{core}" + "C" * (i % 4)
-        # Garde-fou : un SMILES invalide dans la fixture ferait échouer les splits
-        # pour une raison sans rapport avec la logique testée.
-        assert Chem.MolFromSmiles(smi) is not None, f"SMILES de fixture invalide : {smi}"
+        # Guard: an invalid SMILES in the fixture would make the splits fail for a
+        # reason unrelated to the logic under test.
+        assert Chem.MolFromSmiles(smi) is not None, f"invalid fixture SMILES: {smi}"
         rows.append(
             {
                 "smiles": smi,
@@ -87,8 +87,8 @@ def toy_df() -> pd.DataFrame:
 def test_partition_is_exhaustive_and_disjoint(toy_df: pd.DataFrame) -> None:
     for split in (random_split(toy_df), scaffold_split(toy_df), cold_target_split(toy_df)):
         idx = np.concatenate([split.train, split.valid, split.test])
-        assert len(idx) == len(np.unique(idx)), "index dupliqué entre partitions"
-        assert set(idx) == set(range(len(toy_df))), "partition non exhaustive"
+        assert len(idx) == len(np.unique(idx)), "index duplicated across partitions"
+        assert set(idx) == set(range(len(toy_df))), "partition is not exhaustive"
 
 
 def test_scaffold_split_has_zero_scaffold_overlap(toy_df: pd.DataFrame) -> None:
@@ -111,8 +111,8 @@ def test_temporal_split_respects_arrow_of_time(toy_df: pd.DataFrame) -> None:
 
 
 def test_random_split_leaks_and_scaffold_split_does_not(toy_df: pd.DataFrame) -> None:
-    """Test de contrôle : documente positivement l'ampleur de la fuite du split
-    aléatoire. C'est le résultat central du projet, il doit être testé."""
+    """Control test: positively documents how much the random split leaks. This is
+    the project's central result, so it must be tested."""
     leaky = audit_leakage(toy_df, random_split(toy_df), sample=200)
     clean = audit_leakage(toy_df, scaffold_split(toy_df), sample=200)
     assert leaky.shared_scaffolds > 0
@@ -126,23 +126,23 @@ def test_splits_are_reproducible(toy_df: pd.DataFrame) -> None:
 
 
 def test_butina_never_mixes_two_disjoint_chemical_series() -> None:
-    """`cutoff` est une *distance* : 0.6 correspond à une similarité Tanimoto de 0.4.
+    """`cutoff` is a *distance*: 0.6 corresponds to a Tanimoto similarity of 0.4.
 
-    La similarité inter-séries mesurée ici ne dépasse pas 0.11, très en dessous du
-    seuil : aucun cluster ne doit chevaucher les deux séries. On n'exige pas que
-    chaque série forme un cluster unique — l'ajout d'un méthyle sur un naphtalène
-    nu ne suffit pas à atteindre 0.4 de similarité ECFP4.
+    The cross-series similarity measured here never exceeds 0.11, well below the
+    threshold: no cluster may straddle the two series. We do not require each
+    series to form a single cluster — adding a methyl to a bare naphthalene is not
+    enough to reach 0.4 ECFP4 similarity.
     """
     serie_a = ["c1ccc2ccccc2c1", "c1ccc2ccccc2c1C", "c1ccc2ccccc2c1CC"]
     serie_b = ["C1CCNCC1", "C1CCNCC1C", "C1CCNCC1CC"]
     labels = butina_clusters(serie_a + serie_b, cutoff=0.6)
 
     assert len(labels) == 6
-    assert set(labels[:3]).isdisjoint(set(labels[3:])), "les deux séries se mélangent"
+    assert set(labels[:3]).isdisjoint(set(labels[3:])), "the two series are mixed"
 
 
 def test_butina_cluster_count_decreases_as_the_cutoff_widens() -> None:
-    """Un seuil de distance plus permissif ne peut que fusionner des clusters."""
+    """A more permissive distance threshold can only merge clusters."""
     smiles = [
         "c1ccc2ccccc2c1",
         "c1ccc2ccccc2c1C",
@@ -153,7 +153,7 @@ def test_butina_cluster_count_decreases_as_the_cutoff_widens() -> None:
     ]
     counts = [len(set(butina_clusters(smiles, cutoff=c))) for c in (0.4, 0.6, 0.8)]
     assert counts[0] >= counts[1] >= counts[2]
-    assert counts[0] > counts[2], "le seuil n'a aucun effet : clustering suspect"
+    assert counts[0] > counts[2], "the threshold has no effect: clustering is suspect"
 
 
 def test_butina_split_partitions_exhaustively(toy_df: pd.DataFrame) -> None:
@@ -164,8 +164,8 @@ def test_butina_split_partitions_exhaustively(toy_df: pd.DataFrame) -> None:
 
 
 def test_cold_pair_split_is_included_in_both_parent_splits(toy_df: pd.DataFrame) -> None:
-    """Le split cold-pair est l'intersection du cold-drug et du cold-target :
-    chacune de ses partitions est incluse dans celle des deux splits parents."""
+    """The cold-pair split is the intersection of cold-drug and cold-target: each of
+    its partitions is contained in those of both parent splits."""
     pair = cold_pair_split(toy_df)
     drug = scaffold_split(toy_df)
     target = cold_target_split(toy_df)
@@ -181,8 +181,8 @@ def test_cold_target_split_rejects_an_unknown_grouping_column(toy_df: pd.DataFra
 
 
 def test_audit_on_a_degenerate_partition_reports_nan_not_zero(toy_df: pd.DataFrame) -> None:
-    """Un test set vide ne doit pas faire lever l'audit, ni renvoyer 0.0 —
-    valeur qui se lirait à tort comme « aucune fuite détectée »."""
+    """An empty test set must not make the audit raise, nor return 0.0 — a value
+    that would wrongly read as "no leakage detected"."""
     from kinoscope.data.splits import Split
 
     empty = Split(

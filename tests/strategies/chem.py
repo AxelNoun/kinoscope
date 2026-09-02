@@ -1,22 +1,21 @@
-"""Stratégies Hypothesis pour la génération de molécules et de jeux d'affinité.
+"""Hypothesis strategies for generating molecules and affinity datasets.
 
-Générer des SMILES caractère par caractère est un mauvais réflexe : la quasi-
-totalité des chaînes tirées est invalide, et la stratégie passe son temps dans
-le filtre plutôt que dans l'espace chimique. On procède à l'envers — un pool de
-molécules réelles, dont on tire des *transformations qui préservent l'identité
-chimique* :
+Generating SMILES character by character is the wrong reflex: almost every string
+drawn is invalid, and the strategy spends its time in the filter rather than in
+chemical space. We work the other way round — a pool of real molecules, from
+which we draw *transformations that preserve chemical identity*:
 
-  - réécriture SMILES non canonique (parcours enraciné sur un atome arbitraire) ;
-  - renumérotation aléatoire des atomes (``Chem.RenumberAtoms``) ;
-  - ajout ou retrait des hydrogènes explicites.
+  - non-canonical SMILES rewriting (traversal rooted at an arbitrary atom);
+  - random atom renumbering (``Chem.RenumberAtoms``);
+  - adding or removing explicit hydrogens.
 
-Ces trois transformations sont précisément celles qu'un featurizer correct doit
-absorber sans changer sa sortie à isomorphisme près, et qu'un pipeline de
-standardisation doit réduire à une forme unique.
+Those three transformations are exactly the ones a correct featuriser must absorb
+without changing its output up to isomorphism, and that a standardisation pipeline
+must reduce to a single form.
 
-Le pool couvre les cas qui font tomber ce genre de code : sels et contre-ions,
-paire de tautomères, énantiomères, macrocycle, composé métallique, charges
-formelles portées, halogènes lourds, hétérocycles azotés et soufrés.
+The pool covers the cases that break this kind of code: salts and counter-ions, a
+tautomer pair, enantiomers, a macrocycle, a metal complex, formal charges,
+heavy halogens, and nitrogen- and sulfur-containing heterocycles.
 """
 
 from __future__ import annotations
@@ -28,46 +27,46 @@ from rdkit import Chem, RDLogger
 
 RDLogger.DisableLog("rdApp.*")
 
-# Molécules réelles. La validité de chacune est verrouillée par
-# ``test_reference_pool_is_parsable`` : une entrée invalide ferait échouer les
-# tests par propriétés pour une raison sans rapport avec la propriété testée.
+# Real molecules. The validity of each is locked down by
+# ``test_reference_pool_is_parsable``: an invalid entry would fail the property
+# tests below for a reason unrelated to the property under test.
 REFERENCE_SMILES: tuple[str, ...] = (
-    "CC(=O)Oc1ccccc1C(=O)O",  # aspirine
-    "Cn1cnc2c1c(=O)n(C)c(=O)n2C",  # caféine
+    "CC(=O)Oc1ccccc1C(=O)O",  # aspirin
+    "Cn1cnc2c1c(=O)n(C)c(=O)n2C",  # caffeine
     "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1",  # imatinib
-    "CC(C)Cc1ccc(C(C)C(=O)O)cc1",  # ibuprofène
-    "CC(=O)Nc1ccc(O)cc1",  # paracétamol
+    "CC(C)Cc1ccc(C(C)C(=O)O)cc1",  # ibuprofen
+    "CC(=O)Nc1ccc(O)cc1",  # paracetamol
     "C[C@H](N)C(=O)O",  # L-alanine
-    "C[C@@H](N)C(=O)O",  # D-alanine : énantiomère du précédent
-    "OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O",  # glucose : quatre stéréocentres
+    "C[C@@H](N)C(=O)O",  # D-alanine: enantiomer of the above
+    "OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O",  # glucose: four stereocentres
     "c1ccccc1",
     "c1ccncc1",
     "c1ccc2ccccc2c1",
-    "c1ccc2[nH]ccc2c1",  # indole : NH aromatique
+    "c1ccc2[nH]ccc2c1",  # indole: aromatic NH
     "c1ccc2nccnc2c1",
     "c1ccsc1",
     "c1ccoc1",
     "C1CCNCC1",
     "C1COCCN1",
     "C1CCCCC1",
-    "CC(=O)[O-].[Na+]",  # sel : deux fragments
-    "CN(C)CCc1c[nH]c2ccccc12.Cl",  # chlorhydrate
-    "O=c1cccc[nH]1",  # 2-pyridone     \ paire de tautomères :
-    "Oc1ccccn1",  # 2-hydroxypyridine  / même formule, graphes distincts
-    "C1CCCCCCCCCCCCCCC1",  # macrocycle à 16 chaînons
-    "O=[N+]([O-])c1ccccc1",  # nitro : charges formelles portées
+    "CC(=O)[O-].[Na+]",  # salt: two fragments
+    "CN(C)CCc1c[nH]c2ccccc12.Cl",  # hydrochloride
+    "O=c1cccc[nH]1",  # 2-pyridone     \ tautomer pair:
+    "Oc1ccccn1",  # 2-hydroxypyridine  / same formula, distinct graphs
+    "C1CCCCCCCCCCCCCCC1",  # 16-membered macrocycle
+    "O=[N+]([O-])c1ccccc1",  # nitro: explicit formal charges
     "NS(=O)(=O)c1ccccc1",
-    "CC(=O)[O-].[Zn+2].CC(=O)[O-]",  # métal : rejeté en aval, pas en amont
+    "CC(=O)[O-].[Zn+2].CC(=O)[O-]",  # metal: rejected downstream, not upstream
     "OP(=O)(O)OCc1ccccc1",
-    "Fc1ccc(Cl)c(Br)c1",  # halogènes lourds
-    "C#Cc1ccccc1",  # liaison triple
-    "C[N+](C)(C)C.[Cl-]",  # ammonium quaternaire
-    "C/C=C/c1ccccc1",  # stéréochimie de double liaison (E)
-    "COCCOc1cc2ncnc(Nc3cccc(C#C)c3)c2cc1OCCOC",  # inhibiteur de kinase type EGFR
+    "Fc1ccc(Cl)c(Br)c1",  # heavy halogens
+    "C#Cc1ccccc1",  # triple bond
+    "C[N+](C)(C)C.[Cl-]",  # quaternary ammonium
+    "C/C=C/c1ccccc1",  # double-bond stereochemistry (E)
+    "COCCOc1cc2ncnc(Nc3cccc(C#C)c3)c2cc1OCCOC",  # EGFR-like kinase inhibitor
 )
 
-# Les InChIKey sont calculés une fois pour toutes : les recalculer à chaque
-# exemple tiré dominerait le temps d'exécution des tests de splits.
+# InChIKeys are computed once: recomputing them for every drawn example would
+# dominate the runtime of the split tests.
 _INCHIKEYS: dict[str, str] = {
     smi: Chem.MolToInchiKey(Chem.MolFromSmiles(smi)) for smi in REFERENCE_SMILES
 }
@@ -76,10 +75,10 @@ MANNING_GROUPS: tuple[str, ...] = ("TK", "CMGC", "AGC", "CAMK", "STE", "CK1", "T
 
 
 def parse(smiles: str) -> Chem.Mol:
-    """``MolFromSmiles`` qui lève au lieu de renvoyer ``None`` silencieusement."""
+    """``MolFromSmiles`` that raises instead of silently returning ``None``."""
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
-        raise ValueError(f"SMILES du pool de référence non parsable : {smiles!r}")
+        raise ValueError(f"unparsable reference-pool SMILES: {smiles!r}")
     return mol
 
 
@@ -88,12 +87,11 @@ reference_smiles = st.sampled_from(REFERENCE_SMILES)
 
 @st.composite
 def molecules(draw: st.DrawFn, *, explicit_hs: bool = True) -> Chem.Mol:
-    """Une molécule du pool, atomes renumérotés au hasard.
+    """A molecule from the pool, with atoms randomly renumbered.
 
-    ``explicit_hs`` autorise le tirage d'une variante ``AddHs`` : le graphe
-    change alors de taille sans changer de molécule, ce qui est exactement le
-    cas limite où un featurizer confond « nombre d'atomes » et « nombre
-    d'atomes lourds ».
+    ``explicit_hs`` allows drawing an ``AddHs`` variant: the graph then changes
+    size without changing molecule, which is exactly the edge case where a
+    featuriser confuses "number of atoms" with "number of heavy atoms".
     """
     mol = parse(draw(reference_smiles))
     if explicit_hs and draw(st.booleans()):
@@ -104,7 +102,7 @@ def molecules(draw: st.DrawFn, *, explicit_hs: bool = True) -> Chem.Mol:
 
 @st.composite
 def renumbered_pairs(draw: st.DrawFn) -> tuple[Chem.Mol, Chem.Mol, list[int]]:
-    """``(mol, mol_renumérotée, ordre)`` avec ``atome_new[i] == atome_old[ordre[i]]``."""
+    """``(mol, renumbered_mol, order)`` with ``atom_new[i] == atom_old[order[i]]``."""
     mol = draw(molecules())
     order = list(draw(st.permutations(range(mol.GetNumAtoms()))))
     return mol, Chem.RenumberAtoms(mol, order), order
@@ -112,15 +110,14 @@ def renumbered_pairs(draw: st.DrawFn) -> tuple[Chem.Mol, Chem.Mol, list[int]]:
 
 @st.composite
 def equivalent_writings(draw: st.DrawFn) -> tuple[str, str]:
-    """Deux écritures SMILES de la même molécule, dont une non canonique.
+    """Two SMILES writings of the same molecule, one of them non-canonical.
 
-    ``rootedAtAtom`` n'est pas borné par le nombre d'atomes de la molécule mais
-    par celui de son *premier fragment* : sur un sel, RDKit lève
-    ``RuntimeError: Range Error`` dès que l'index dépasse cette taille. Vérifié
-    sur RDKit 2024.03.5 — ``CC(=O)[O-].[Na+]`` (fragments 4 et 1) n'accepte que
-    les racines 0 à 3. Tirer la racine sur toute la molécule rendait cette
-    stratégie instable : elle ne tombait sur le cas fautif qu'une fois sur
-    plusieurs dizaines d'exemples.
+    ``rootedAtAtom`` is bounded not by the molecule's atom count but by that of
+    its *first fragment*: on a salt, RDKit raises ``RuntimeError: Range Error`` as
+    soon as the index exceeds that size. Verified on RDKit 2024.03.5 —
+    ``CC(=O)[O-].[Na+]`` (fragments of 4 and 1 atoms) only accepts roots 0 to 3.
+    Drawing the root over the whole molecule made this strategy flaky: it hit the
+    faulty case only once in several dozen examples.
     """
     base = draw(reference_smiles)
     mol = parse(base)
@@ -133,13 +130,13 @@ def equivalent_writings(draw: st.DrawFn) -> tuple[str, str]:
 def affinity_frames(
     draw: st.DrawFn, *, min_rows: int = 40, max_rows: int = 200, max_targets: int = 12
 ) -> pd.DataFrame:
-    """Un jeu (ligand, cible, affinité) de la forme attendue par ``data.splits``.
+    """A (ligand, target, affinity) dataset of the shape ``data.splits`` expects.
 
-    Les colonnes reproduisent le contrat réel du module : ``smiles``,
-    ``inchikey``, ``uniprot``, ``manning_group``, ``p_affinity``, ``doc_year``.
-    L'InChIKey est le vrai, calculé depuis le SMILES : deux lignes portant le
-    même ligand partagent donc la même clé, sans quoi l'audit de fuite testerait
-    une propriété vide.
+    The columns reproduce the module's real contract: ``smiles``, ``inchikey``,
+    ``uniprot``, ``manning_group``, ``p_affinity``, ``doc_year``. The InChIKey is
+    the real one, computed from the SMILES, so two rows carrying the same ligand
+    share the same key — without which the leakage audit would be testing an empty
+    property.
     """
     n = draw(st.integers(min_value=min_rows, max_value=max_rows))
     n_targets = draw(st.integers(min_value=2, max_value=max_targets))

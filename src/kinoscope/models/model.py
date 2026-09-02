@@ -2,29 +2,28 @@
 kinoscope/models/model.py
 =========================
 
-Architecture hybride pour la prédiction d'affinité cible-médicament (DTI)
-sur le kinome humain.
+Hybrid architecture for drug-target interaction (DTI) affinity prediction over the
+human kinome.
 
-    Ligand   : graphe moléculaire 2D  -> GINE (Graph Isomorphism Network w/ edge features)
-    Protéine : poche KLIFS 85 résidus -> embeddings ESM-2 pré-calculés + adaptateur Transformer
-    Fusion   : Bilinear Attention Network (BAN) -> carte d'interaction atome-résidu explicite
-    Têtes    : régression hétéroscédastique (mu, log sigma^2) + classification actif/inactif
+    Ligand  : 2D molecular graph    -> GINE (Graph Isomorphism Network w/ edge features)
+    Protein : 85-residue KLIFS pocket -> precomputed ESM-2 embeddings + Transformer adapter
+    Fusion  : Bilinear Attention Network (BAN) -> explicit atom-residue interaction map
+    Heads   : heteroscedastic regression (mu, log sigma^2) + active/inactive classification
 
-Le modèle expose la carte d'interaction brute afin (i) de la superviser faiblement
-contre les contacts cristallographiques (PDBbind / BioLiP, seuil 4.5 A heavy-atom)
-et (ii) de produire une interprétabilité vérifiable au moment de l'inférence.
+The model exposes the raw interaction map so that it can (i) be weakly supervised
+against crystallographic contacts (PDBbind / BioLiP, 4.5 A heavy-atom threshold)
+and (ii) yield falsifiable interpretability at inference time.
 
-Convention de shapes
---------------------
-    B  : taille du batch
-    Na : nombre max d'atomes lourds dans le batch (après to_dense_batch)
-    Nr : nombre de positions de poche (85 pour l'alignement KLIFS)
-    H  : nombre de têtes bilinéaires
-    K  : rang de la projection bilinéaire (low-rank)
-    D  : dimension latente partagée
+Shape conventions
+-----------------
+    B  : batch size
+    Na : maximum number of heavy atoms in the batch (after to_dense_batch)
+    Nr : number of pocket positions (85 for the KLIFS alignment)
+    H  : number of bilinear heads
+    K  : rank of the low-rank bilinear projection
+    D  : shared latent dimension
 
-Auteur : <you>
-Licence : Apache-2.0
+Licence: Apache-2.0
 """
 
 from __future__ import annotations
@@ -51,66 +50,66 @@ __all__ = [
 ]
 
 # --------------------------------------------------------------------------- #
-# Cardinalités du featurizer (src/kinoscope/data/featurizer.py).
-# Chaque descripteur est encodé en entier ; l'index 0 est réservé à <unk>.
+# Featuriser cardinalities (src/kinoscope/data/featurizer.py).
+# Each descriptor is encoded as an integer; index 0 is reserved for <unk>.
 # --------------------------------------------------------------------------- #
 ATOM_FEATURE_DIMS: tuple[int, ...] = (
-    120,  # numéro atomique (Z)
-    8,  # degré (nb de voisins lourds)
-    6,  # charge formelle décalée [-2..+3]
-    6,  # hybridation {SP, SP2, SP3, SP3D, SP3D2, other}
-    2,  # aromaticité
-    6,  # nb d'hydrogènes implicites + explicites
-    4,  # tag de chiralité CIP
-    2,  # appartenance à un cycle
-    6,  # taille du plus petit cycle (SSSR)
+    120,  # atomic number (Z)
+    8,  # degree (number of heavy neighbours)
+    6,  # shifted formal charge [-2..+3]
+    6,  # hybridisation {SP, SP2, SP3, SP3D, SP3D2, other}
+    2,  # aromaticity
+    6,  # implicit + explicit hydrogen count
+    4,  # CIP chirality tag
+    2,  # ring membership
+    6,  # smallest ring size (SSSR)
 )
 BOND_FEATURE_DIMS: tuple[int, ...] = (
-    5,  # type de liaison {simple, double, triple, aromatique, other}
-    2,  # conjugaison
-    2,  # appartenance à un cycle
-    6,  # stéréochimie
+    5,  # bond type {single, double, triple, aromatic, other}
+    2,  # conjugation
+    2,  # ring membership
+    6,  # stereochemistry
 )
 
 
 @dataclass
 class ModelConfig:
-    """Configuration sérialisable (mappée 1:1 sur configs/model/*.yaml via Hydra)."""
+    """Serialisable configuration, mapped 1:1 onto configs/model/*.yaml via Hydra."""
 
-    # --- dimensions partagées -------------------------------------------------
+    # --- shared dimensions ---------------------------------------------------
     hidden_dim: int = 256
 
     # --- encodeur ligand ------------------------------------------------------
     gnn_layers: int = 5
     gnn_dropout: float = 0.1
-    gnn_jk: bool = True  # Jumping Knowledge : concat des représentations par couche
+    gnn_jk: bool = True  # Jumping Knowledge: concatenate per-layer representations
 
-    # --- encodeur protéine ----------------------------------------------------
+    # --- protein encoder ------------------------------------------------------
     plm_dim: int = 1280  # esm2_t33_650M_UR50D
     pocket_len: int = 85  # alignement KLIFS
     adapter_layers: int = 2
     adapter_heads: int = 8
     adapter_dropout: float = 0.1
 
-    # --- fusion bilinéaire ----------------------------------------------------
+    # --- bilinear fusion ------------------------------------------------------
     ban_heads: int = 4
     ban_rank: int = 96
     ban_dropout: float = 0.2
 
     # --- covariable de dosage -------------------------------------------------
-    # Les endpoints ChEMBL sont hétérogènes (Kd / Ki / IC50 / EC50). Plutôt qu'une
-    # conversion Cheng-Prusoff hasardeuse, on conditionne le modèle sur le type
-    # d'essai et on ne prédit sur le jeu de test que la distribution ciblée.
+    # ChEMBL endpoints are heterogeneous (Kd / Ki / IC50 / EC50). Rather than an
+    # unsound Cheng-Prusoff conversion, the model is conditioned on the assay type
+    # and only the targeted distribution is predicted on the test set.
     n_assay_types: int = 5
     assay_emb_dim: int = 16
 
-    # --- têtes ----------------------------------------------------------------
+    # --- heads ----------------------------------------------------------------
     head_hidden: int = 512
     head_dropout: float = 0.3
     heteroscedastic: bool = True
     logvar_clamp: tuple[float, float] = (-6.0, 3.0)
 
-    # --- pondération des pertes ----------------------------------------------
+    # --- loss weighting ------------------------------------------------------
     w_affinity: float = 1.0
     w_activity: float = 0.2
     w_contact: float = 0.1
@@ -121,10 +120,10 @@ class ModelConfig:
 
 
 # --------------------------------------------------------------------------- #
-# Encodeurs de features catégorielles
+# Categorical feature encoders
 # --------------------------------------------------------------------------- #
 class _CategoricalEncoder(nn.Module):
-    """Somme d'embeddings sur des descripteurs catégoriels entiers."""
+    """Sum of embeddings over integer categorical descriptors."""
 
     def __init__(self, dims: tuple[int, ...], hidden_dim: int) -> None:
         super().__init__()
@@ -147,23 +146,23 @@ class AtomEncoder(_CategoricalEncoder):
 
 
 class BondEncoder(_CategoricalEncoder):
-    """Descripteurs de liaison RDKit -> R^D (requis par GINEConv)."""
+    """RDKit bond descriptors -> R^D (required by GINEConv)."""
 
 
 # --------------------------------------------------------------------------- #
-# 1. Encodeur ligand : GINE
+# 1. Ligand encoder: GINE
 # --------------------------------------------------------------------------- #
 class LigandGraphEncoder(nn.Module):
     """
-    Pile GINEConv résiduelle sur le graphe moléculaire 2D.
+    Residual GINEConv stack over the 2D molecular graph.
 
-    GINE est retenu plutôt qu'un GAT/GCN parce que son pouvoir discriminant est
-    borné par le test de Weisfeiler-Lehman 1-WL (Xu et al., 2019) et qu'il
-    consomme nativement les features de liaison — non négociable en chimie
-    médicinale, où le type de liaison porte l'essentiel de la sémantique.
+    GINE is preferred over a GAT/GCN because its discriminative power is bounded by
+    the 1-WL Weisfeiler-Lehman test (Xu et al., 2019) and because it consumes bond
+    features natively — non-negotiable in medicinal chemistry, where bond type
+    carries most of the semantics.
 
-    Retourne des embeddings *par atome* (et non un simple pooling global) : la
-    couche de fusion en a besoin pour construire la carte d'interaction.
+    Returns *per-atom* embeddings rather than a global pooling: the fusion layer
+    needs them to build the interaction map.
     """
 
     def __init__(self, cfg: ModelConfig) -> None:
@@ -201,7 +200,7 @@ class LigandGraphEncoder(nn.Module):
         Returns
         -------
         node_repr : [B, Na, D]
-        node_mask : [B, Na] booléen (True = atome réel)
+        node_mask : [B, Na] boolean (True = real atom)
         """
         h = self.atom_encoder(x)
         e = self.bond_encoder(edge_attr)
@@ -211,7 +210,7 @@ class LigandGraphEncoder(nn.Module):
             h_new = conv(h, edge_index, e)
             h_new = norm(h_new)
             h_new = self.dropout(F.relu(h_new))
-            h = h + h_new  # connexion résiduelle : stabilise > 4 couches
+            h = h + h_new  # residual connection: stabilises beyond 4 layers
             layer_outputs.append(h)
 
         h = torch.cat(layer_outputs, dim=-1) if self.cfg.gnn_jk else h
@@ -220,27 +219,27 @@ class LigandGraphEncoder(nn.Module):
 
 
 # --------------------------------------------------------------------------- #
-# 2. Encodeur protéine : adaptateur sur ESM-2 gelé
+# 2. Protein encoder: adapter over a frozen ESM-2
 # --------------------------------------------------------------------------- #
 class PocketPLMEncoder(nn.Module):
     """
-    Consomme des représentations ESM-2 *pré-calculées* et mises en cache
+    Consumes *precomputed*, cached ESM-2 representations
     (`scripts/precompute_esm_embeddings.py` -> LMDB, fp16).
 
-    Deux décisions de conception :
+    Two design decisions:
 
-    1. On n'encode pas la séquence entière de la kinase (300-2500 aa) mais les
-       85 positions de la poche définies par l'alignement structural KLIFS. Le
-       ratio signal/bruit explose, la longueur devient fixe, et les positions
-       acquièrent une identité pharmacophorique stable entre toutes les kinases
-       (hinge = 46-48, gatekeeper = 45, motif DFG = 81-83, hélice alphaC = 17-30).
-       C'est ce qui autorise un embedding positionnel *appris* — impossible sur
-       une séquence full-length.
+    1. The full kinase sequence (300-2500 aa) is not encoded — only the 85 pocket
+       positions defined by the KLIFS structural alignment. The signal-to-noise
+       ratio improves sharply, the length becomes fixed, and positions acquire a
+       pharmacophoric identity that is stable across all kinases (hinge = 46-48,
+       gatekeeper = 45, DFG motif = 81-83, alphaC helix = 17-30). That is what makes
+       a *learned* positional embedding possible — it would be meaningless over a
+       full-length sequence.
 
-    2. ESM-2 650M reste gelé par défaut ; seul l'adaptateur (~3M paramètres) est
-       entraîné. Avec ~10^5 paires étiquetées, un fine-tuning complet du PLM
-       sur-apprend systématiquement. Le fine-tuning LoRA des 4 derniers blocs
-       est disponible en phase 2 (cf. `configs/model/gine_esm2_lora.yaml`).
+    2. ESM-2 650M stays frozen by default; only the adapter (~3M parameters) is
+       trained. With ~1e5 labelled pairs, full PLM fine-tuning overfits every time.
+       LoRA fine-tuning of the last four blocks is available in phase 2 (see
+       `configs/model/gine_esm2_lora.yaml`).
     """
 
     def __init__(self, cfg: ModelConfig) -> None:
@@ -253,7 +252,7 @@ class PocketPLMEncoder(nn.Module):
             nn.GELU(),
             nn.Dropout(cfg.adapter_dropout),
         )
-        # Embedding positionnel indexé sur la position KLIFS (identité fonctionnelle).
+        # Positional embedding indexed by KLIFS position (functional identity).
         self.pos_embedding = nn.Parameter(torch.zeros(1, cfg.pocket_len, d))
         nn.init.trunc_normal_(self.pos_embedding, std=0.02)
 
@@ -264,7 +263,7 @@ class PocketPLMEncoder(nn.Module):
             dropout=cfg.adapter_dropout,
             activation="gelu",
             batch_first=True,
-            norm_first=True,  # pre-LN : entraînement stable sans warmup long
+            norm_first=True,  # pre-LN: stable training without a long warmup
         )
         self.adapter = nn.TransformerEncoder(encoder_layer, num_layers=cfg.adapter_layers)
         self.out_norm = nn.LayerNorm(d)
@@ -273,9 +272,9 @@ class PocketPLMEncoder(nn.Module):
         """
         Parameters
         ----------
-        plm_emb      : [B, Nr, plm_dim] représentations ESM-2 par résidu
-        residue_mask : [B, Nr] booléen (True = position occupée ; les gaps de
-                       l'alignement KLIFS sont masqués)
+        plm_emb      : [B, Nr, plm_dim] per-residue ESM-2 representations
+        residue_mask : [B, Nr] boolean (True = occupied position; gaps in the
+                       KLIFS alignment are masked out)
 
         Returns
         -------
@@ -291,17 +290,16 @@ class PocketPLMEncoder(nn.Module):
 # --------------------------------------------------------------------------- #
 class BilinearAttentionFusion(nn.Module):
     """
-    Attention bilinéaire low-rank entre atomes et résidus (Kim et al., 2018 ;
-    adaptée au DTI par Bai et al., DrugBAN, Nat. Mach. Intell. 2023).
+    Low-rank bilinear attention between atoms and residues (Kim et al., 2018;
+    adapted to DTI by Bai et al., DrugBAN, Nat. Mach. Intell. 2023).
 
         A[b,h,i,j] = softmax_{i,j} ( <U_h · l_i , V_h · p_j> / sqrt(K) )
         f[b,h,:]   = sum_{i,j} A[b,h,i,j] * (U_h · l_i) ⊙ (V_h · p_j)
 
-    L'intérêt par rapport à une simple concaténation de vecteurs poolés : le
-    modèle est contraint de raisonner sur des *paires* atome-résidu. La matrice A
-    est directement comparable à une carte de contacts cristallographique, ce qui
-    fournit à la fois un signal de supervision auxiliaire et une interprétabilité
-    falsifiable — et non un heatmap décoratif.
+    The advantage over concatenating pooled vectors: the model is forced to reason
+    over atom-residue *pairs*. Matrix A is directly comparable to a crystallographic
+    contact map, which supplies both an auxiliary supervision signal and
+    falsifiable interpretability — not a decorative heatmap.
     """
 
     def __init__(self, cfg: ModelConfig) -> None:
@@ -339,14 +337,13 @@ class BilinearAttentionFusion(nn.Module):
         pair_mask = ligand_mask[:, None, :, None] & protein_mask[:, None, None, :]
         logits = logits.masked_fill(~pair_mask, float("-inf"))
 
-        # Softmax *joint* sur (Na x Nr) : les paires se concurrencent entre elles,
-        # contrairement à un softmax par ligne qui forcerait chaque atome à
-        # contacter un résidu.
+        # *Joint* softmax over (Na x Nr): pairs compete with one another, unlike a
+        # row-wise softmax, which would force every atom to contact some residue.
         attn = torch.softmax(logits.flatten(start_dim=2), dim=-1).view_as(logits)
         attn = torch.nan_to_num(attn, nan=0.0)
         attn = self.dropout(attn)
 
-        # Pooling bilinéaire : sum_{i,j} A_ij * (ql_i ⊙ qp_j)
+        # Bilinear pooling: sum_{i,j} A_ij * (ql_i * qp_j)
         pooled = torch.einsum("bhij,bhik,bhjk->bhk", attn, ql, qp)
         pooled = pooled.reshape(b, self.h * self.k)
 
@@ -355,10 +352,10 @@ class BilinearAttentionFusion(nn.Module):
 
 
 # --------------------------------------------------------------------------- #
-# 4. Modèle complet
+# 4. Full model
 # --------------------------------------------------------------------------- #
 class HybridDTIModel(nn.Module):
-    """GNN(ligand) x ESM-2(poche) -> pAffinity hétéroscédastique + logit d'activité."""
+    """GNN(ligand) x ESM-2(pocket) -> heteroscedastic pAffinity + activity logit."""
 
     def __init__(self, cfg: ModelConfig | None = None) -> None:
         super().__init__()
@@ -386,8 +383,8 @@ class HybridDTIModel(nn.Module):
 
     def forward(self, batch: dict[str, Any]) -> dict[str, Tensor]:
         """
-        Clés attendues dans `batch`
-        ---------------------------
+        Expected keys in `batch`
+        ------------------------
         x            : [Nnodes, n_atom_feat]  (long)
         edge_index   : [2, Nedges]            (long)
         edge_attr    : [Nedges, n_bond_feat]  (long)
@@ -416,8 +413,8 @@ class HybridDTIModel(nn.Module):
             mu, logvar = affinity[:, 0], torch.zeros_like(affinity[:, 0])
 
         return {
-            "affinity_mu": mu,  # [B]  pAffinity prédite
-            "affinity_logvar": logvar,  # [B]  incertitude aléatorique
+            "affinity_mu": mu,  # [B]  predicted pAffinity
+            "affinity_logvar": logvar,  # [B]  aleatoric uncertainty
             "activity_logit": self.activity_head(z).squeeze(-1),  # [B]
             "interaction_logits": interaction_logits,  # [B, H, Na, Nr]
             "ligand_mask": ligand_mask,  # [B, Na]
@@ -425,7 +422,7 @@ class HybridDTIModel(nn.Module):
 
     @torch.inference_mode()
     def predict(self, batch: dict[str, Any]) -> dict[str, Tensor]:
-        """Inférence : renvoie mu et l'écart-type aléatorique (en unités log)."""
+        """Inference: return mu and the aleatoric standard deviation (log units)."""
         self.eval()
         out = self.forward(batch)
         return {
@@ -440,19 +437,18 @@ class HybridDTIModel(nn.Module):
 
 
 # --------------------------------------------------------------------------- #
-# 5. Objectif multi-tâche
+# 5. Multi-task objective
 # --------------------------------------------------------------------------- #
 class DTILoss(nn.Module):
     """
     L = w_a * GaussianNLL(pAffinity)
       + w_c * BCE(actif/inactif)
-      + w_x * BCE(carte d'interaction | contacts cristallographiques)
+      + w_x * BCE(interaction map | crystallographic contacts)
 
-    Le terme de contact n'est appliqué que sur le sous-ensemble de paires
-    disposant d'une structure co-cristallisée (PDBbind / BioLiP), signalé par
-    `contact_available`. Il agit comme un régulariseur structural : il force
-    l'attention à se concentrer sur la poche ATP réelle au lieu de corréler avec
-    des artefacts de composition atomique.
+    The contact term applies only to the subset of pairs backed by a co-crystal
+    structure (PDBbind / BioLiP), flagged by `contact_available`. It acts as a
+    structural regulariser: it forces attention onto the real ATP pocket instead of
+    correlating with atom-composition artefacts.
     """
 
     def __init__(self, cfg: ModelConfig) -> None:
@@ -512,7 +508,7 @@ if __name__ == "__main__":
     batch_index = torch.repeat_interleave(torch.arange(B), torch.tensor(n_atoms_per_mol))
     n_edges = 2 * n_nodes
     edge_index = torch.randint(0, n_nodes, (2, n_edges))
-    # On garde les arêtes intra-molécule (le batching PyG est bloc-diagonal).
+    # Keep intra-molecule edges only (PyG batching is block-diagonal).
     keep = batch_index[edge_index[0]] == batch_index[edge_index[1]]
     edge_index = edge_index[:, keep]
     edge_attr = torch.stack(
@@ -532,7 +528,7 @@ if __name__ == "__main__":
     out = model(batch)
     loss = criterion(out, {"p_affinity": torch.rand(B) * 5 + 4})
 
-    print(f"paramètres entraînables : {model.num_parameters():,}")
+    print(f"trainable parameters: {model.num_parameters():,}")
     for k, v in out.items():
         print(f"  {k:22s} {tuple(v.shape)}")
     print(f"loss = {loss['loss'].item():.4f}")

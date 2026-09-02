@@ -82,17 +82,31 @@ def _group_split(
     Greedy filling prevents a massive cluster from unbalancing the test set, which
     is what a plain shuffle of groups does.
 
-    Known defect: each bucket is shuffled and then sorted, which annuls the shuffle,
-    and the group-to-bucket assignment is otherwise deterministic. `seed` therefore
-    has no effect on any group-based split. See the `xfail` test
-    `test_group_splits_should_depend_on_the_seed`.
+    ``seed`` breaks ties between groups of equal size, and that is the only degree
+    of freedom the greedy filling can be given: the size ordering itself must stay
+    deterministic, otherwise the guarantee above is lost. Shuffling the group list
+    before a *stable* sort keeps largest-first while randomising equal-sized
+    groups.
+
+    This matters scientifically, not cosmetically. Until this was fixed, each
+    bucket was shuffled and then sorted — which annuls the shuffle — and the
+    group-to-bucket assignment was otherwise fully deterministic, so every
+    group-based strategy silently ignored its ``seed``. A confidence interval
+    computed over several seeds then aggregated identical replicates and was
+    artificially narrow: it measured the variability of the model initialisation
+    while being reported as covering the variability of the split as well.
     """
     rng = np.random.default_rng(seed)
     members: dict[object, list[int]] = defaultdict(list)
     for idx, g in enumerate(groups):
         members[g].append(idx)
 
-    order = sorted(members, key=lambda g: len(members[g]), reverse=True)
+    # Shuffle by index permutation rather than `rng.shuffle`: the group labels are
+    # heterogeneous (int or str), so the list is `list[object]`, which the NumPy
+    # generator does not accept.
+    order = [key for _, key in sorted(zip(rng.permutation(len(members)), members, strict=True))]
+    order.sort(key=lambda g: len(members[g]), reverse=True)  # stable sort: size wins
+
     n = len(groups)
     targets = [frac[0] * n, frac[1] * n, frac[2] * n]
     buckets: list[list[int]] = [[], [], []]
@@ -102,8 +116,9 @@ def _group_split(
         k = int(np.argmax(deficits))
         buckets[k].extend(members[g])
 
-    for b in buckets:
-        rng.shuffle(b)
+    # Indices are returned sorted: a split is a set, and a stable order keeps diffs
+    # between runs readable. The previous `rng.shuffle(b)` on this line was dead —
+    # the sort erased it — and was the reason `seed` had no observable effect.
     return Split(*[np.asarray(sorted(b), dtype=np.int64) for b in buckets])
 
 

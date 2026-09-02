@@ -1,10 +1,14 @@
 # Hydra entry point. Override from the CLI: python scripts/train.py split=cold_target
+# `optional` on the groups whose files are written by a later phase: without it
+# Hydra raises MissingConfigException at composition time and no entry point can
+# start. Verified on Hydra 1.3.2. The intent stays declared here, and the group is
+# picked up automatically as soon as its file exists.
 defaults:
   - _self_
-  - data: chembl_kinase
+  - optional data: chembl_kinase      # written by PHASE 1
   - model: gine_esm2
   - split: scaffold
-  - trainer: single_gpu
+  - optional trainer: single_gpu      # written by PHASE 5
 
 seed: 42
 paths:
@@ -17,6 +21,11 @@ paths:
   graphs_lmdb: ${paths.processed}/graphs.lmdb
   pairs: ${paths.processed}/pairs.parquet
 
+# Single source of truth for any published figure: the JSON files declared as
+# `metrics` in dvc.yaml, which are versioned alongside the code that produced them.
+# MLflow is a convenience UI over training runs and is authoritative for nothing.
+# Two tracking systems are tolerable; two answers to "what is the cold_target RMSE"
+# are not.
 logging:
   backend: mlflow
   tracking_uri: http://localhost:5000

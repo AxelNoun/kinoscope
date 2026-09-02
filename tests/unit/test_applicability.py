@@ -1,7 +1,8 @@
-"""Domaine d'applicabilité : similarité au plus proche voisin du train.
+"""Applicability domain: nearest-neighbour similarity to the training set.
 
-Ce module vérifie la mécanique du score — pas la relation entre similarité et
-erreur du modèle, qui relève de l'étape 6.4 et exige de vraies prédictions.
+This module checks the mechanics of the score — not the relationship between
+similarity and model error, which belongs to step 6.4 and requires real
+predictions.
 """
 
 from __future__ import annotations

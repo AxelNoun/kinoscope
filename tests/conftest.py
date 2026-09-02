@@ -1,15 +1,14 @@
-"""Configuration commune des tests.
+"""Shared test configuration.
 
-Deux profils Hypothesis, parce que les deux usages n'ont pas le même objectif :
-``dev`` doit rendre la main vite pendant l'écriture du code, ``ci`` doit
-chercher réellement des contre-exemples. Le profil est choisi par la variable
-d'environnement ``HYPOTHESIS_PROFILE`` (défaut : ``dev``), positionnée à ``ci``
-dans le workflow GitHub Actions.
+Two Hypothesis profiles, because the two use cases have different goals: ``dev``
+must return quickly while code is being written, ``ci`` must actually search for
+counterexamples. The profile is selected by the ``HYPOTHESIS_PROFILE``
+environment variable (default ``dev``), set to ``ci`` in the GitHub Actions
+workflow.
 
-``deadline=None`` dans les deux cas : la featurisation RDKit et le clustering
-Butina ont des temps d'exécution très variables d'un exemple à l'autre, et un
-échec pour dépassement de délai serait un faux positif — pas l'information
-qu'on cherche.
+``deadline=None`` in both cases: RDKit featurisation and Butina clustering have
+highly variable runtimes from one example to the next, and a deadline failure
+would be a false positive — not the information we are after.
 """
 
 from __future__ import annotations
@@ -23,9 +22,9 @@ settings.register_profile(
     "ci",
     max_examples=200,
     deadline=None,
-    # Les stratégies de ce dépôt construisent des molécules RDKit et des
-    # DataFrames : la génération est lente par nature, pas par défaut de
-    # conception. `too_slow` n'apporterait ici qu'un échec parasite.
+    # This repository's strategies build RDKit molecules and DataFrames:
+    # generation is slow by nature, not by design flaw. `too_slow` would only
+    # contribute spurious failures here.
     suppress_health_check=[HealthCheck.too_slow],
     verbosity=Verbosity.normal,
 )

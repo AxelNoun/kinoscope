@@ -1,7 +1,7 @@
-"""Métriques d'évaluation, vérifiées sur des vecteurs analytiques.
+"""Evaluation metrics, checked against analytically known vectors.
 
-Chaque assertion porte sur une valeur connue exactement, pas sur une tolérance
-choisie après coup : classement parfait, classement inversé, absence de signal.
+Every assertion targets an exactly known value rather than a tolerance chosen
+after the fact: perfect ranking, reversed ranking, no signal at all.
 """
 
 from __future__ import annotations
@@ -48,12 +48,12 @@ def test_concordance_index_is_zero_for_a_reversed_ranking() -> None:
 
 
 def test_concordance_index_is_one_half_without_any_signal() -> None:
-    """Prédiction constante : toutes les paires sont ex aequo, donc CI = 0.5."""
+    """Constant prediction: every pair is tied, so CI = 0.5."""
     assert concordance_index(Y, np.zeros_like(Y)) == 0.5
 
 
 def test_concordance_index_is_invariant_under_chunking() -> None:
-    """Le découpage n'est qu'une optimisation mémoire : il ne doit rien changer."""
+    """Chunking is a memory optimisation only: it must change nothing."""
     y, yhat = _noisy_pair()
     assert concordance_index(y, yhat, chunk=17) == pytest.approx(
         concordance_index(y, yhat, chunk=4096)
@@ -65,8 +65,8 @@ def test_r2m_is_one_on_a_perfect_fit() -> None:
 
 
 def test_enrichment_factor_rewards_a_perfect_ranking() -> None:
-    """Un actif sur cinq, retrouvé dans le premier cinquième du classement :
-    la fraction d'actifs y est de 1.0 contre 0.2 en moyenne, soit EF = 5."""
+    """One active in five, recovered in the top fifth of the ranking: the active
+    fraction there is 1.0 against 0.2 on average, so EF = 5."""
     y = np.array([5.0, 5.0, 5.0, 5.0, 9.0])
     assert enrichment_factor(y, y, threshold=8.0, fraction=0.2) == pytest.approx(5.0)
 
@@ -95,8 +95,8 @@ def test_compute_metrics_returns_every_declared_field() -> None:
 
 
 def test_classification_metrics_are_nan_when_a_class_is_missing() -> None:
-    """Sans les deux classes, AUPR et AUROC ne sont pas définis : on rapporte NaN
-    plutôt qu'un nombre trompeur."""
+    """Without both classes, AUPR and AUROC are undefined: report NaN rather than
+    a misleading number."""
     y, yhat = _noisy_pair()
     metrics = compute_metrics(y, yhat, activity_threshold=99.0).to_dict()
     assert np.isnan(metrics["auroc"])
@@ -104,13 +104,13 @@ def test_classification_metrics_are_nan_when_a_class_is_missing() -> None:
 
 
 def test_bootstrap_ci_brackets_point_estimate() -> None:
-    """Test de sortie 6.2 : l'estimation ponctuelle tombe dans son propre IC."""
+    """Exit test 6.2: the point estimate falls inside its own interval."""
     y, yhat = _noisy_pair()
     intervals = bootstrap_ci(y, yhat, n_resamples=200, seed=0, activity_threshold=7.0)
     for name, (point, low, high) in intervals.items():
         if np.isnan(point) or np.isnan(low) or np.isnan(high):
             continue
-        assert low <= point <= high, f"{name}: {point} hors de [{low}, {high}]"
+        assert low <= point <= high, f"{name}: {point} outside [{low}, {high}]"
 
 
 def test_bootstrap_ci_is_reproducible_for_a_given_seed() -> None:

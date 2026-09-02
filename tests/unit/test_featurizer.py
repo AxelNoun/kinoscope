@@ -1,6 +1,5 @@
-"""Verrouille le contrat featurizer <-> modèle. Un décalage ici produit un
-IndexError d'embedding, ou pire, un modèle qui s'entraîne sur des features
-silencieusement tronquées."""
+"""Locks the featuriser <-> model contract. A mismatch here produces an embedding
+IndexError, or worse, a model training on silently truncated features."""
 
 from __future__ import annotations
 
@@ -19,9 +18,9 @@ from kinoscope.models.model import ATOM_FEATURE_DIMS, BOND_FEATURE_DIMS
 SMILES = [
     "CC(=O)Oc1ccccc1C(=O)O",  # aspirine
     "Cc1ccc(NC(=O)c2ccc(CN3CCN(C)CC3)cc2)cc1Nc1nccc(-c2cccnc2)n1",  # imatinib
-    "C[C@H](N)C(=O)O",  # stéréocentre
+    "C[C@H](N)C(=O)O",  # stereocentre
     "c1ccc2c(c1)ccc1ccccc12",  # polycyclique
-    "[Na+].[Cl-]",  # sel (à rejeter en amont)
+    "[Na+].[Cl-]",  # salt (to be rejected upstream)
 ]
 
 
@@ -44,7 +43,7 @@ def test_graph_topology(smi: str) -> None:
 def test_indices_within_embedding_cardinality(smi: str) -> None:
     g = smiles_to_graph(smi)
     for col, dim in enumerate(ATOM_FEATURE_DIMS):
-        assert int(g.x[:, col].max()) < dim, f"feature atomique {col} déborde de {dim}"
+        assert int(g.x[:, col].max()) < dim, f"atom feature {col} overflows {dim}"
         assert int(g.x[:, col].min()) >= 0
     if g.edge_attr.numel():
         for col, dim in enumerate(BOND_FEATURE_DIMS):
@@ -60,7 +59,7 @@ def test_determinism() -> None:
 def test_stereochemistry_is_encoded() -> None:
     r = smiles_to_graph("C[C@H](N)C(=O)O")
     s = smiles_to_graph("C[C@@H](N)C(=O)O")
-    assert not torch.equal(r.x, s.x), "les énantiomères doivent différer"
+    assert not torch.equal(r.x, s.x), "enantiomers must differ"
 
 
 def test_rejects_invalid_smiles() -> None:

@@ -1,13 +1,13 @@
-"""Test de sortie de l'étape 0.1 — packaging et importabilité.
+"""Exit test for step 0.1 — packaging and importability.
 
-Vérifie deux propriétés distinctes :
+Two distinct properties are checked:
 
-1. Chaque sous-module de `kinoscope` s'importe sans `ImportError`. Une dépendance
-   manquante ou mal épinglée dans `pyproject.toml` se manifeste ici, et non trois
-   phases plus loin au milieu d'un entraînement.
-2. Le paquet est importable depuis un répertoire de travail arbitraire, ce qui
-   distingue une véritable installation (`pip install -e .`, layout `src/`) d'un
-   simple ajout du dépôt au `sys.path` courant.
+1. Every submodule of `kinoscope` imports without an `ImportError`. A missing or
+   badly pinned dependency shows up here, rather than three phases later in the
+   middle of a training run.
+2. The package is importable from an arbitrary working directory, which
+   distinguishes a real installation (`pip install -e .`, `src/` layout) from
+   merely having the repository on the current `sys.path`.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from pathlib import Path
 
 import kinoscope
 
-# Sous-paquets attendus d'après §4.2 du MASTER_PLAN. La liste sert de garde-fou
-# contre une arborescence amputée : `walk_packages` ne signale pas ce qui manque.
+# Subpackages expected from §4.2 of the MASTER_PLAN. The list guards against an
+# amputated tree: `walk_packages` does not report what is missing.
 EXPECTED_SUBPACKAGES = (
     "kinoscope.data",
     "kinoscope.data.sources",
@@ -35,11 +35,11 @@ EXPECTED_SUBPACKAGES = (
 
 
 def _walk_submodules() -> tuple[list[str], dict[str, str]]:
-    """Énumère les sous-modules de `kinoscope`.
+    """Enumerate the submodules of `kinoscope`.
 
-    Renvoie `(noms, erreurs_de_parcours)`. `pkgutil.walk_packages` importe les
-    paquets pour accéder à leur `__path__` ; sans `onerror`, un échec y est
-    silencieusement avalé, ce qui masquerait précisément ce que ce test cherche.
+    Returns `(names, walk_errors)`. `pkgutil.walk_packages` imports packages to
+    reach their `__path__`; without `onerror`, a failure there is swallowed
+    silently, which would hide precisely what this test is looking for.
     """
     walk_errors: dict[str, str] = {}
 
@@ -58,34 +58,34 @@ def _walk_submodules() -> tuple[list[str], dict[str, str]]:
 
 def test_expected_subpackages_are_present() -> None:
     names, walk_errors = _walk_submodules()
-    assert not walk_errors, f"parcours du paquet en échec : {walk_errors}"
+    assert not walk_errors, f"package walk failed: {walk_errors}"
     missing = [pkg for pkg in EXPECTED_SUBPACKAGES if pkg not in names]
-    assert not missing, f"sous-paquets absents de l'arborescence : {missing}"
+    assert not missing, f"subpackages missing from the tree: {missing}"
 
 
 def test_every_submodule_imports_without_error() -> None:
     names, walk_errors = _walk_submodules()
-    assert names, "aucun sous-module découvert : le paquet est-il bien installé ?"
+    assert names, "no submodule discovered: is the package actually installed?"
 
     failures: dict[str, str] = dict(walk_errors)
     for name in names:
         try:
             importlib.import_module(name)
-        # On capture largement : le but est le rapport exhaustif des échecs.
+        # Broad on purpose: the point is an exhaustive report of every failure.
         except Exception as exc:
             failures[name] = f"{type(exc).__name__}: {exc}"
 
     report = "\n".join(f"  {name}: {err}" for name, err in sorted(failures.items()))
-    assert not failures, f"{len(failures)} sous-module(s) non importable(s) :\n{report}"
+    assert not failures, f"{len(failures)} submodule(s) failed to import:\n{report}"
 
 
 def test_importable_from_an_arbitrary_directory(tmp_path: Path) -> None:
-    """`import kinoscope` doit fonctionner hors du répertoire du dépôt."""
-    # Le processus fils est lancé hors du dépôt : il n'y trouverait pas
-    # `pyproject.toml` et instrumenterait donc la couverture avec les réglages
-    # par défaut (sans `branch`), ce qui fait échouer la fusion des données de
-    # coverage du processus parent. On neutralise l'instrumentation héritée :
-    # ce sous-processus sert à vérifier l'installation, pas à mesurer le code.
+    """`import kinoscope` must work outside the repository directory."""
+    # The child process runs outside the repository, where it would not find
+    # `pyproject.toml` and would therefore instrument coverage with the default
+    # settings (no `branch`), which breaks the parent's coverage merge. Strip the
+    # inherited instrumentation: this subprocess exists to check the install, not
+    # to measure code.
     env = {
         key: value
         for key, value in os.environ.items()

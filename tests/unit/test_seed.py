@@ -1,13 +1,12 @@
-"""Test de sortie de l'étape 0.3 — déterminisme global.
+"""Exit test for step 0.3 — global determinism.
 
-Un résultat non reproductible est un bug bloquant. Ce module vérifie que
-`set_global_seed` remet effectivement chaque générateur dans le même état, et
-que le mode déterministe de torch est bien activé.
+A non-reproducible result is a blocking bug. This module checks that
+`set_global_seed` really returns every generator to the same state, and that
+torch's deterministic mode is actually enabled.
 
-L'état global de torch (`use_deterministic_algorithms`, drapeaux cuDNN) est
-sauvegardé puis restauré autour de chaque test : ces réglages sont propres au
-processus, et les laisser actifs modifierait le comportement des autres tests
-de la session.
+Torch's global state (`use_deterministic_algorithms`, cuDNN flags) is saved and
+restored around each test: those settings are process-wide, and leaving them
+active would change the behaviour of the rest of the session.
 """
 
 from __future__ import annotations
@@ -42,11 +41,11 @@ def _restore_torch_global_state() -> Iterator[None]:
 
 
 def test_reproducible_forward() -> None:
-    """Deux exécutions à graine identique produisent des tenseurs bit-à-bit égaux.
+    """Two runs at the same seed produce bit-for-bit identical tensors.
 
-    Le mini-forward couvre les deux sources d'aléa d'un entraînement : l'initialisation
-    des poids et le tirage des données. `torch.equal` compare bit à bit, pas à une
-    tolérance près — c'est le seul critère acceptable pour du déterminisme.
+    The mini forward pass covers both sources of randomness in a training run:
+    weight initialisation and data sampling. `torch.equal` compares bit for bit,
+    not within a tolerance — the only acceptable criterion for determinism.
     """
 
     def run() -> torch.Tensor:
@@ -60,7 +59,7 @@ def test_reproducible_forward() -> None:
 
 
 def test_distinct_seeds_produce_distinct_draws() -> None:
-    """Garde-fou contre un `set_global_seed` qui ne sèmerait rien du tout."""
+    """Guard against a `set_global_seed` that seeds nothing at all."""
     set_global_seed(0)
     first = torch.randn(8)
     set_global_seed(1)
@@ -69,8 +68,8 @@ def test_distinct_seeds_produce_distinct_draws() -> None:
 
 
 def test_seeds_python_and_numpy_streams() -> None:
-    # `np.random.rand` (NPY002) est délibéré : c'est le générateur global hérité
-    # que `set_global_seed` sème, et le seul moyen de vérifier qu'il l'est bien.
+    # `np.random.rand` (NPY002) is deliberate: the legacy global generator is what
+    # `set_global_seed` seeds, and the only way to check that it does.
     set_global_seed(7)
     py_first, np_first = random.random(), np.random.rand()  # noqa: NPY002
     set_global_seed(7)
@@ -79,11 +78,11 @@ def test_seeds_python_and_numpy_streams() -> None:
 
 
 def test_exports_pythonhashseed_for_child_processes() -> None:
-    """`PYTHONHASHSEED` n'agit qu'au démarrage d'un interpréteur.
+    """`PYTHONHASHSEED` only takes effect at interpreter startup.
 
-    Le poser ici ne change donc rien au processus courant : cela ne sert qu'aux
-    processus fils (workers de `DataLoader` lancés par `spawn`). On vérifie
-    l'export, pas un effet sur le hachage local — qui n'existe pas.
+    Setting it here therefore changes nothing for the current process: it only
+    serves child processes (`DataLoader` workers started by `spawn`). What is
+    checked is the export, not a local hashing effect — there is none.
     """
     set_global_seed(99)
     assert os.environ["PYTHONHASHSEED"] == "99"

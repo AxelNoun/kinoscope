@@ -1,8 +1,8 @@
-"""Contrats d'API : la validation chimique et syntaxique se fait à l'entrée.
+"""API contracts: chemical and syntactic validation happens at the boundary.
 
-Une entrée invalide doit être refusée par le schéma — c'est-à-dire produire un
-HTTP 422 côté FastAPI — jamais atteindre le modèle ni provoquer une prédiction
-silencieuse sur une molécule que RDKit ne sait pas lire.
+An invalid input must be refused by the schema — that is, produce an HTTP 422 on
+the FastAPI side — never reach the model, and never yield a silent prediction on
+a molecule RDKit cannot read.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def test_accepts_a_well_formed_request() -> None:
     "smiles",
     [
         "ceci_n_est_pas_un_smiles",
-        "c1ccccc",  # cycle non refermé
+        "c1ccccc",  # unclosed ring
         "C(((",
     ],
 )

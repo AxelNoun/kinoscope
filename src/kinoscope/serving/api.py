@@ -1,8 +1,8 @@
-"""API d'inférence FastAPI.
+"""FastAPI inference service.
 
-Le modèle est chargé une fois au démarrage (lifespan), pas par requête. Le cache
-des embeddings de poche est un dictionnaire en mémoire adossé à Redis : le kinome
-tient en ~110 Mo en fp16, donc la totalité est chargeable en RAM.
+The model is loaded once at startup (lifespan), not per request. The pocket
+embedding cache is an in-memory dictionary backed by Redis: the whole kinome fits
+in ~110 MB at fp16, so all of it can be held in RAM.
 """
 
 from __future__ import annotations
@@ -29,11 +29,12 @@ _state: dict[str, Any] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
-    # `predictor.py` est livré à l'étape 7.2 du MASTER_PLAN. L'ignore devient
-    # inutile dès sa création, et `warn_unused_ignores` le signalera alors.
+    # `predictor.py` is delivered at step 7.2 of the MASTER_PLAN. This ignore
+    # becomes unnecessary the moment it exists, and `warn_unused_ignores` will
+    # then flag it.
     from kinoscope.serving.predictor import Predictor  # type: ignore[import-not-found]
 
-    logger.info("chargement du prédicteur (version %s)", MODEL_VERSION)
+    logger.info("loading predictor (version %s)", MODEL_VERSION)
     _state["predictor"] = Predictor.from_checkpoint(
         checkpoint=os.getenv("KINOSCOPE_CHECKPOINT", "artifacts/model.ckpt"),
         pocket_lmdb=os.getenv("KINOSCOPE_POCKETS", "data/processed/pockets.lmdb"),
@@ -46,7 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
 app = FastAPI(
     title="KinoScope",
     version=MODEL_VERSION,
-    description="Prédiction d'affinité kinase-inhibiteur avec intervalles conformes calibrés.",
+    description="Kinase-inhibitor affinity prediction with calibrated conformal intervals.",
     lifespan=lifespan,
 )
 
@@ -55,7 +56,7 @@ app = FastAPI(
 async def healthz() -> HealthResponse:
     p = _state.get("predictor")
     if p is None:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "modèle non chargé")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "model not loaded")
     return HealthResponse(
         status="ok", model_version=MODEL_VERSION, device=str(p.device), n_targets_cached=p.n_targets
     )
@@ -67,7 +68,7 @@ async def predict(req: PredictionRequest) -> PredictionResponse:
     try:
         return cast(PredictionResponse, p.predict_one(req))
     except KeyError as exc:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"cible inconnue: {exc}") from exc
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"unknown target: {exc}") from exc
     except ValueError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
@@ -79,6 +80,7 @@ async def predict_batch(req: BatchPredictionRequest) -> list[PredictionResponse]
 
 @app.post("/profile/kinome", tags=["inference"])
 async def profile_kinome(smiles: str, top_k: int = 20) -> dict[str, Any]:
-    """Profil de sélectivité : une molécule contre toutes les kinases couvertes.
-    Retourne le classement et l'entropie de Shannon du profil (score de promiscuité)."""
+    """Selectivity profile: one molecule against every covered kinase.
+    Returns the ranking and the Shannon entropy of the profile (a promiscuity
+    score)."""
     return cast(dict[str, Any], _state["predictor"].profile_kinome(smiles, top_k=top_k))

@@ -1,0 +1,20 @@
+# Default split regime declared by configs/config.yaml.
+# Mirrors the structure of cold_target.yaml; only the thresholds differ, and each
+# value below is traceable rather than chosen: fractions and seed come from the
+# defaults of `kinoscope.data.splits`, the Tanimoto ceiling from cold_target.yaml.
+name: scaffold
+strategy: scaffold
+fractions: [0.8, 0.1, 0.1]
+seed: 42
+
+# Leakage-audit failure thresholds. CI rejects a run that exceeds them.
+audit:
+  max_shared_inchikeys: 0
+  # Scaffold is a cold-DRUG regime: targets are deliberately shared between train
+  # and test. Forcing this to 0 here would silently turn it into cold_pair.
+  max_shared_uniprots: null
+  max_shared_scaffolds: 0
+  max_tanimoto_train_test: 0.85
+  # MASTER_PLAN 4.2 additionally sets 20 % of the test set above Tanimoto 0.7 as
+  # the point where a split stops being cold-drug. That criterion is enforced by
+  # step 4.4, not here — this file only carries the thresholds the audit reads.

@@ -1,16 +1,15 @@
-"""Tests par propriétés des stratégies de partitionnement.
+"""Property-based tests for the partitioning strategies.
 
-``test_splits.py`` vérifie ces invariants sur une fixture unique de 300 lignes.
-Le risque de cette approche est connu : une fixture qui, par construction,
-n'exerce jamais le cas dégénéré (un seul groupe, groupes de tailles très
-inégales, années toutes identiques) laisse passer un bug qui n'apparaîtra que
-sur les vraies données ChEMBL. Les propriétés ci-dessous sont vérifiées sur des
-jeux tirés dont la taille, le nombre de cibles et le nombre de groupes varient.
+``test_splits.py`` checks these invariants on a single 300-row fixture. The risk
+of that approach is known: a fixture that by construction never exercises the
+degenerate case (a single group, wildly unequal group sizes, all years identical)
+lets through a bug that will only surface on real ChEMBL data. The properties
+below are checked on drawn datasets whose size, target count and group count vary.
 
-Les tests qui appellent ``scaffold_split``, ``butina_split`` ou ``audit_leakage``
-portent un ``max_examples`` explicite : ces fonctions recalculent des
-descripteurs RDKit pour chaque ligne à chaque exemple, et le profil ``ci`` les
-rendrait sinon plus longs que tout le reste de la suite réuni.
+Tests that call ``scaffold_split``, ``butina_split`` or ``audit_leakage`` carry an
+explicit ``max_examples``: those functions recompute RDKit descriptors for every
+row on every example, and the ``ci`` profile would otherwise make them longer than
+the rest of the suite combined.
 """
 
 from __future__ import annotations
@@ -38,11 +37,11 @@ _VALID_YEAR, _TEST_YEAR = 2012, 2019
 
 
 def _fixed_frame(n: int = 120, seed: int = 0) -> pd.DataFrame:
-    """Jeu déterministe construit hors Hypothesis.
+    """Deterministic dataset built outside Hypothesis.
 
-    Réservé aux tests dont l'issue ne dépend pas de la variabilité du jeu : y
-    faire tourner un moteur de génération et de réduction coûterait du temps
-    sans rien apporter.
+    Reserved for tests whose outcome does not depend on dataset variability:
+    running a generation-and-shrinking engine over them would cost time for
+    nothing.
     """
     rng = np.random.default_rng(seed)
     smiles = [REFERENCE_SMILES[i % len(REFERENCE_SMILES)] for i in range(n)]
@@ -59,14 +58,14 @@ def _fixed_frame(n: int = 120, seed: int = 0) -> pd.DataFrame:
 
 
 def _assert_partitions(split: Split, n_rows: int) -> None:
-    """Exhaustivité et disjonction : toute ligne dans exactement une partition."""
+    """Exhaustiveness and disjointness: every row in exactly one partition."""
     joined = np.concatenate([split.train, split.valid, split.test])
-    assert len(joined) == len(np.unique(joined)), "index présent dans deux partitions"
-    assert set(joined.tolist()) == set(range(n_rows)), "partition non exhaustive"
+    assert len(joined) == len(np.unique(joined)), "index present in two partitions"
+    assert set(joined.tolist()) == set(range(n_rows)), "partition is not exhaustive"
 
 
 # --------------------------------------------------------------------------- #
-# Structure de la partition
+# Partition structure
 # --------------------------------------------------------------------------- #
 @settings(max_examples=30)
 @given(df=affinity_frames(max_rows=120))
@@ -83,30 +82,30 @@ def test_partitioning_strategies_are_exhaustive_and_disjoint(df: pd.DataFrame) -
 @settings(max_examples=15)
 @given(df=affinity_frames(min_rows=20, max_rows=60))
 def test_butina_split_is_exhaustive_and_disjoint(df: pd.DataFrame) -> None:
-    """Séparé des autres : le clustering Butina est quadratique en nombre de
-    composés, il ne supporte pas les jeux tirés de la même taille."""
+    """Kept separate: Butina clustering is quadratic in the number of compounds
+    and does not tolerate drawn datasets of the same size as the others."""
     _assert_partitions(butina_split(df), len(df))
 
 
 @settings(max_examples=30)
 @given(df=affinity_frames(max_rows=120))
 def test_cold_pair_is_disjoint_but_deliberately_not_exhaustive(df: pd.DataFrame) -> None:
-    """``cold_pair`` est une *intersection* de deux partitions, pas une partition.
+    """``cold_pair`` is an *intersection* of two partitions, not a partition.
 
-    Les paires dont le ligand tombe en train et la cible en test sont écartées :
-    c'est voulu — elles ne sont ni entraînables ni évaluables dans ce régime.
-    La conséquence, en revanche, doit rester consciente : la somme des trois
-    tailles est inférieure au nombre de lignes, et un ratio 80/10/10 annoncé sur
-    ce régime ne décrit pas ce que le modèle voit réellement.
+    Pairs whose ligand lands in train and whose target lands in test are dropped:
+    that is intended — they are neither trainable nor evaluable in this regime.
+    The consequence must stay conscious, though: the three sizes sum to less than
+    the number of rows, so an announced 80/10/10 ratio does not describe what the
+    model actually sees in this regime.
     """
     split = cold_pair_split(df)
     joined = np.concatenate([split.train, split.valid, split.test])
-    assert len(joined) == len(np.unique(joined)), "index présent dans deux partitions"
-    assert set(joined.tolist()) <= set(range(len(df))), "index hors du jeu de données"
+    assert len(joined) == len(np.unique(joined)), "index present in two partitions"
+    assert set(joined.tolist()) <= set(range(len(df))), "index outside the dataset"
 
 
 # --------------------------------------------------------------------------- #
-# Absence de fuite, par régime
+# Absence of leakage, per regime
 # --------------------------------------------------------------------------- #
 @settings(max_examples=30)
 @given(df=affinity_frames(max_rows=120))
@@ -115,20 +114,20 @@ def test_scaffold_split_never_shares_a_scaffold(df: pd.DataFrame) -> None:
     assume(len(split.train) > 0 and len(split.test) > 0)
     train = {murcko_scaffold(s) for s in df.iloc[split.train]["smiles"]}
     test = {murcko_scaffold(s) for s in df.iloc[split.test]["smiles"]}
-    assert train.isdisjoint(test), f"squelettes partagés : {sorted(train & test)}"
+    assert train.isdisjoint(test), f"shared scaffolds: {sorted(train & test)}"
 
 
 @settings(max_examples=30)
 @pytest.mark.parametrize("by", ["manning_group", "uniprot"])
 @given(df=affinity_frames(max_rows=120))
 def test_cold_target_split_never_shares_a_group(df: pd.DataFrame, by: str) -> None:
-    """Vérifié sur les deux regroupements que le module expose : la famille de
-    Manning (leave-group-out, le régime dur) et l'identifiant UniProt."""
+    """Checked on both groupings the module exposes: the Manning family
+    (leave-group-out, the hard regime) and the UniProt accession."""
     split = cold_target_split(df, by=by)
     assume(len(split.train) > 0 and len(split.test) > 0)
     train = set(df.iloc[split.train][by])
     test = set(df.iloc[split.test][by])
-    assert train.isdisjoint(test), f"groupes partagés sur {by} : {sorted(train & test)}"
+    assert train.isdisjoint(test), f"shared groups on {by}: {sorted(train & test)}"
 
 
 @settings(max_examples=30)
@@ -142,10 +141,10 @@ def test_temporal_split_respects_the_arrow_of_time(df: pd.DataFrame) -> None:
 @settings(max_examples=15)
 @given(df=affinity_frames(min_rows=20, max_rows=60))
 def test_leakage_audit_confirms_scaffold_split_is_clean(df: pd.DataFrame) -> None:
-    """L'audit de fuite et la stratégie de split doivent être d'accord.
+    """The leakage audit and the split strategy must agree.
 
-    Ce sont deux implémentations indépendantes de la même notion : si elles
-    divergent, l'une des deux est fausse et le chiffre publié l'est aussi.
+    They are two independent implementations of the same notion: if they diverge,
+    one of them is wrong and so is the published figure.
     """
     split = scaffold_split(df)
     assume(len(split.train) > 0 and len(split.test) > 0)
@@ -155,7 +154,7 @@ def test_leakage_audit_confirms_scaffold_split_is_clean(df: pd.DataFrame) -> Non
 
 
 # --------------------------------------------------------------------------- #
-# Reproductibilité
+# Reproducibility
 # --------------------------------------------------------------------------- #
 @settings(max_examples=30)
 @given(df=affinity_frames(max_rows=120))
@@ -167,21 +166,17 @@ def test_splits_are_reproducible_at_fixed_seed(df: pd.DataFrame) -> None:
         assert np.array_equal(first.test, second.test)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Défaut identifié, correction non décidée : `_group_split` trie chaque "
-        "compartiment avant de le renvoyer, ce qui annule le `rng.shuffle` et rend "
-        "`seed` sans effet sur tous les splits par groupe (scaffold, butina, "
-        "cold_target, cold_pair). Conséquence : impossible de tirer des splits "
-        "répliqués, donc tout IC calculé sur plusieurs graines pour ces régimes "
-        "est artificiellement étroit. Retirer ce marqueur une fois tranché."
-    ),
-)
-def test_group_splits_should_depend_on_the_seed() -> None:
-    """Délibérément hors Hypothesis : l'assertion échoue par construction, et la
-    phase de réduction chercherait un contre-exemple minimal pour un défaut déjà
-    localisé — près de trois minutes de calcul pour aucune information de plus."""
+def test_group_splits_depend_on_the_seed() -> None:
+    """Non-regression test for a defect that made every group-based split ignore
+    its seed.
+
+    `_group_split` used to shuffle each bucket and then sort it, which annuls the
+    shuffle, while the group-to-bucket assignment was otherwise deterministic.
+    Measured before the fix: one distinct test partition across four seeds for
+    `scaffold` and `cold_target`, against four for `random_split`. Any confidence
+    interval computed over several seeds for those regimes was therefore
+    aggregating identical replicates and was artificially narrow.
+    """
     df = _fixed_frame()
     a, b = scaffold_split(df, seed=1), scaffold_split(df, seed=999)
     assert not np.array_equal(a.test, b.test)
