@@ -1,4 +1,4 @@
-"""Contrats d'API (Pydantic v2). La validation chimique se fait ICI, pas dans le modèle."""
+"""API contracts (Pydantic v2). Chemical validation happens HERE, not in the model."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class PredictionRequest(BaseModel):
 
         RDLogger.DisableLog("rdApp.*")
         if Chem.MolFromSmiles(v) is None:
-            raise ValueError("SMILES non parsable par RDKit")
+            raise ValueError("SMILES not parsable by RDKit")
         return v
 
 
@@ -49,12 +49,10 @@ class AtomResidueContact(BaseModel):
 
 
 class PredictionResponse(BaseModel):
-    p_affinity: float = Field(description="Affinité prédite, échelle -log10(M)")
+    p_affinity: float = Field(description="Predicted affinity, -log10(M) scale")
     ci_lower: float
     ci_upper: float
-    coverage: float = Field(
-        default=0.90, description="Couverture nominale de l'intervalle conforme"
-    )
+    coverage: float = Field(default=0.90, description="Nominal coverage of the conformal interval")
     p_active: float
     in_applicability_domain: bool
     nearest_neighbour_tanimoto: float

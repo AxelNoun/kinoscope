@@ -1,1 +1,1 @@
-"""Stratégies Hypothesis partagées par les tests par propriétés."""
+"""Hypothesis strategies shared by the property-based tests."""

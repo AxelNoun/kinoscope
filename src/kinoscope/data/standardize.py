@@ -1,9 +1,9 @@
-"""Pipeline de standardisation chimique (RDKit).
+"""Chemical standardisation pipeline (RDKit).
 
-Toute molécule entrant dans le projet (entraînement comme inférence) traverse
-exactement cette fonction. Une divergence entre la standardisation d'entraînement
-et celle d'inférence est la première cause de dégradation silencieuse en
-production pour un modèle QSAR/DTI.
+Every molecule entering the project — training and inference alike — goes through
+exactly this function. A divergence between training-time and inference-time
+standardisation is the leading cause of silent production degradation for a
+QSAR/DTI model.
 """
 
 from __future__ import annotations
@@ -28,13 +28,13 @@ MAX_HEAVY_ATOMS: int = 80
 class StandardizedMolecule:
     smiles: str
     inchikey: str
-    inchikey_skeleton: str  # sans couche stéréo : clé de déduplication du clustering
+    inchikey_skeleton: str  # stereo layer stripped: the deduplication key for clustering
     mol_weight: float
     n_heavy_atoms: int
 
 
 class RejectionReason(str):
-    """Motifs de rejet, journalisés pour l'audit du data card."""
+    """Rejection reasons, logged for the data-card audit."""
 
     UNPARSABLE = "unparsable"
     DISCONNECTED = "disconnected_after_fragment_choice"
@@ -51,19 +51,22 @@ _tautomer_enumerator.SetMaxTautomers(256)
 
 
 def standardize(smiles: str, *, canonical_tautomer: bool = True) -> StandardizedMolecule | None:
-    """Retourne la molécule standardisée, ou ``None`` si elle est rejetée.
+    """Return the standardised molecule, or ``None`` if it is rejected.
 
-    Étapes, dans l'ordre (l'ordre importe) :
-      1. parsing + sanitization
-      2. sélection du plus gros fragment (retire contre-ions et solvats)
-      3. normalisation des groupes fonctionnels (nitro, N-oxydes, ...)
-      4. neutralisation des charges
-      5. tautomère canonique (coûteux ; désactivable pour l'inférence temps réel)
-      6. filtres de domaine (éléments, taille, masse)
+    Steps, in order (the order matters):
+      1. parsing + sanitisation
+      2. largest-fragment selection (strips counter-ions and solvates)
+      3. functional-group normalisation (nitro, N-oxides, ...)
+      4. charge neutralisation
+      5. canonical tautomer (costly; disableable for real-time inference)
+      6. domain filters (elements, size, mass)
+
+    Fragment selection must precede neutralisation: the other way round, a
+    counter-ion would be neutralised and then kept.
     """
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
-        logger.debug("rejet %s: %s", smiles, RejectionReason.UNPARSABLE)
+        logger.debug("reject %s: %s", smiles, RejectionReason.UNPARSABLE)
         return None
 
     try:
@@ -74,20 +77,20 @@ def standardize(smiles: str, *, canonical_tautomer: bool = True) -> Standardized
             mol = _tautomer_enumerator.Canonicalize(mol)
         Chem.SanitizeMol(mol)
     except (Chem.AtomValenceException, Chem.KekulizeException, ValueError, RuntimeError):
-        logger.debug("rejet %s: %s", smiles, RejectionReason.SANITIZATION_FAILED)
+        logger.debug("reject %s: %s", smiles, RejectionReason.SANITIZATION_FAILED)
         return None
 
     if "." in Chem.MolToSmiles(mol):
-        logger.debug("rejet %s: %s", smiles, RejectionReason.DISCONNECTED)
+        logger.debug("reject %s: %s", smiles, RejectionReason.DISCONNECTED)
         return None
     if any(a.GetAtomicNum() not in ALLOWED_ELEMENTS for a in mol.GetAtoms()):
-        logger.debug("rejet %s: %s", smiles, RejectionReason.FORBIDDEN_ELEMENT)
+        logger.debug("reject %s: %s", smiles, RejectionReason.FORBIDDEN_ELEMENT)
         return None
 
     n_heavy = mol.GetNumHeavyAtoms()
     mw = Descriptors.MolWt(mol)
     if not (MIN_HEAVY_ATOMS <= n_heavy <= MAX_HEAVY_ATOMS) or mw > MAX_MOLWT:
-        logger.debug("rejet %s: %s", smiles, RejectionReason.SIZE_OUT_OF_RANGE)
+        logger.debug("reject %s: %s", smiles, RejectionReason.SIZE_OUT_OF_RANGE)
         return None
 
     canonical = Chem.MolToSmiles(mol, canonical=True)
@@ -109,8 +112,8 @@ def standardize(smiles: str, *, canonical_tautomer: bool = True) -> Standardized
 def standardize_batch(
     smiles_list: list[str], *, n_jobs: int = 1
 ) -> list[StandardizedMolecule | None]:
-    """Version batch. ``n_jobs > 1`` requiert joblib (RDKit n'est pas thread-safe :
-    utiliser des *processus*, jamais des threads)."""
+    """Batch version. ``n_jobs > 1`` requires joblib (RDKit is not thread-safe:
+    use *processes*, never threads)."""
     if n_jobs == 1:
         return [standardize(s) for s in smiles_list]
     from joblib import Parallel, delayed

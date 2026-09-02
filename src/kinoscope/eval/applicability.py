@@ -1,8 +1,8 @@
-"""Domaine d'applicabilité : refuser de prédire est une décision valide.
+"""Applicability domain: refusing to predict is a valid decision.
 
-Un modèle QSAR interrogé sur un chémotype absent du corpus d'entraînement
-extrapole. Le signaler est une exigence de l'OCDE pour les modèles QSAR
-réglementaires, et la moindre des choses pour un modèle de portfolio.
+A QSAR model queried about a chemotype absent from its training corpus is
+extrapolating. Flagging that is an OECD requirement for regulatory QSAR models,
+and the least one can do for a portfolio model.
 """
 
 from __future__ import annotations
@@ -20,6 +20,8 @@ from kinoscope.data.splits import morgan_fingerprints
 @dataclass
 class ApplicabilityDomain:
     threshold: float = 0.35
+    # RDKit fingerprints are opaque to the type checker: the stubs shipped by
+    # rdkit==2024.3.5 do not parse and are skipped (see pyproject).
     _train_fps: list[Any] = None  # type: ignore[assignment]
 
     def fit(self, train_smiles: list[str]) -> ApplicabilityDomain:
@@ -27,7 +29,7 @@ class ApplicabilityDomain:
         return self
 
     def score(self, smiles: list[str]) -> npt.NDArray[np.float64]:
-        """Similarité Tanimoto au plus proche voisin du train set."""
+        """Tanimoto similarity to the nearest neighbour in the training set."""
         fps = morgan_fingerprints(smiles)
         return np.array([max(DataStructs.BulkTanimotoSimilarity(f, self._train_fps)) for f in fps])
 

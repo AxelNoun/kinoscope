@@ -1,120 +1,176 @@
 # KinoScope
 
-**Prédiction d'affinité kinase–inhibiteur par modèle hybride GNN + ESM-2, sous protocole d'évaluation sans fuite de données.**
+**Kinase–inhibitor affinity prediction with a hybrid GNN + ESM-2 model, under a leakage-free evaluation protocol.**
 
 [![CI](https://github.com/AxelNoun/kinoscope/actions/workflows/ci.yml/badge.svg)](https://github.com/AxelNoun/kinoscope/actions)
 [![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
----
-
-## État du projet
-
-**Dépôt de recherche en cours de construction — 3 étapes sur 58 du [`MASTER_PLAN.md`](MASTER_PLAN.md) sont terminées.**
-Le squelette, l'outillage qualité et le déterminisme sont en place et vérifiés ; la science ne l'est pas encore.
-
-Ce qui fonctionne aujourd'hui :
-
-- `make check` sort en 0 — ruff, `mypy --strict`, 97 tests, couverture 84 %.
-- Les six stratégies de partitionnement, l'audit de fuite, les métriques, la calibration
-  conforme, le domaine d'applicabilité et la standardisation RDKit sont implémentés et testés.
-
-Ce qui ne fonctionne pas encore, et qu'il faut savoir avant de cloner :
-
-- **Aucun modèle n'a été entraîné.** Tous les chiffres du tableau ci-dessous sont des `TBD`.
-- **La composition Hydra n'aboutit pas** : `configs/config.yaml` déclare les groupes
-  `data: chembl_kinase`, `split: scaffold` et `trainer: single_gpu`, dont les fichiers seront
-  écrits aux phases 1, 4 et 5.
-- **`dvc repro` échoue** : `dvc.yaml` décrit le pipeline cible, mais cinq de ses dépendances
-  (`scripts/download_sources.py`, `scripts/build_dataset.py`, `scripts/train.py`,
-  `src/kinoscope/data/sources/klifs.py`, `params.yaml`) relèvent d'étapes non faites, et DVC
-  n'est pas initialisé.
-- **Défaut ouvert** : `_group_split` trie chaque compartiment après l'avoir mélangé, ce qui rend
-  l'argument `seed` sans effet sur les splits par groupe (`scaffold`, `butina`, `cold_target`,
-  `cold_pair`). Tout intervalle de confiance calculé sur plusieurs graines pour ces régimes serait
-  artificiellement étroit. Le test `test_group_splits_should_depend_on_the_seed` documente le
-  défaut en `xfail(strict=True)` ; la correction relève de l'étape 4.1.
-- **Dépendances** : les versions épinglées datent de septembre 2024. `pip-audit` rapporte
-  95 vulnérabilités connues dans 12 paquets. À réexaminer avant tout déploiement.
+This repository is a public record of work in progress. It is built in the open, one
+verified step at a time, against the roadmap in [`MASTER_PLAN.md`](MASTER_PLAN.md).
+Everything below that is claimed has been measured; everything that has not been measured
+is labelled as such.
 
 ---
 
-## Le problème
+## The problem
 
-Les performances DTI publiées sur Davis et KIBA sont obtenues sous partition aléatoire.
-Un même ligand se retrouve alors des deux côtés de la frontière train/test, et le modèle
-apprend un **prior de composé** plutôt qu'une fonction d'interaction. Le chiffre publié
-ne dit rien de ce qui arrive sur un chémotype ou une kinase inédits — c'est-à-dire sur le
-seul cas d'usage réel.
+Published drug–target interaction results on Davis and KIBA are obtained under a random
+split. That split puts the same ligand on both sides of the train/test boundary, so the
+model learns a **compound prior** rather than an interaction function. The published number
+therefore says nothing about an unseen chemotype or an unseen kinase — the only regime that
+matters in drug discovery.
 
-KinoScope fait deux choses :
+KinoScope does two things:
 
-1. Un modèle hybride **GINE (ligand) × ESM-2 (poche KLIFS 85 résidus)** avec fusion par
-   attention bilinéaire, sortie hétéroscédastique et intervalles conformes calibrés.
-2. Un **protocole d'évaluation à quatre régimes** (aléatoire, cold-drug, cold-target,
-   temporel) avec audit de fuite automatisé en CI, qui mesure honnêtement ce qui généralise.
+1. A hybrid model — **GINE (ligand) × ESM-2 (85-residue KLIFS pocket)** — fused by bilinear
+   attention, with a heteroscedastic output and calibrated conformal intervals.
+2. A **four-regime evaluation protocol** (random, cold-drug, cold-target, temporal) with an
+   automated leakage audit in CI, measuring honestly what generalises.
 
-## Résultats
+The scientific claim under test is that performance collapses from `random` to `cold_target`.
+Reporting that collapse *is* the result.
 
-> Régénéré automatiquement par `.github/workflows/benchmark.yml`. Toutes les valeurs sont
-> accompagnées de leur IC 95 % bootstrap (1000 rééchantillonnages).
+---
 
-| Régime de split | RMSE ↓ | Pearson r ↑ | Spearman ρ ↑ | CI ↑ | PICP@90 % |
-|---|---|---|---|---|---|
-| `random` (témoin optimiste) | TBD | TBD | TBD | TBD | TBD |
-| `scaffold` (cold-drug) | TBD | TBD | TBD | TBD | TBD |
-| `cold_target` (leave-group-out) | TBD | TBD | TBD | TBD | TBD |
-| `temporal` (prospectif) | TBD | TBD | TBD | TBD | TBD |
+## What is built and verified
 
-Ablations : `no_plm` (one-hot séquence), `no_ban` (concaténation simple),
-`full_sequence` (ESM-2 sur la séquence entière au lieu de la poche KLIFS).
+`make check` exits 0: ruff, `mypy --strict`, 97 tests, 84 % branch coverage.
 
-## Démarrage rapide
+| Component | State | Where |
+|---|---|---|
+| Six split strategies — random, scaffold, Butina, cold-target, cold-pair, temporal | implemented, tested | [`data/splits.py`](src/kinoscope/data/splits.py) |
+| Quantitative leakage audit — shared InChIKeys, scaffolds, targets, nearest-neighbour Tanimoto | implemented, tested | [`data/splits.py`](src/kinoscope/data/splits.py) |
+| RDKit standardisation — fragment choice → normalisation → uncharging → canonical tautomer | implemented, tested | [`data/standardize.py`](src/kinoscope/data/standardize.py) |
+| Metric suite — RMSE, Pearson, Spearman, concordance index, Roy's r²ₘ, AUPR, AUROC, EF@1 % | implemented, tested | [`eval/metrics.py`](src/kinoscope/eval/metrics.py) |
+| Bootstrap confidence intervals | implemented, tested | [`eval/metrics.py`](src/kinoscope/eval/metrics.py) |
+| Split-conformal calibration, finite-sample quantile, Mondrian variant | implemented, tested | [`eval/conformal.py`](src/kinoscope/eval/conformal.py) |
+| Applicability domain — nearest-neighbour Tanimoto to the training set | implemented, tested | [`eval/applicability.py`](src/kinoscope/eval/applicability.py) |
+| Model — GINE encoder, PLM adapter, bilinear attention fusion, heteroscedastic head | implemented, shape- and gradient-tested | [`models/model.py`](src/kinoscope/models/model.py) |
+| Global determinism | implemented, tested bit-for-bit | [`utils/seed.py`](src/kinoscope/utils/seed.py) |
+| Trained model, reported numbers | **not done** | — |
 
-```bash
-git clone https://github.com/AxelNoun/kinoscope && cd kinoscope
-make setup            # uv venv + deps + hooks pre-commit
-make data             # pipeline DVC : ingestion -> standardisation -> splits
-make embeddings       # cache ESM-2 des poches (une seule fois, ~110 Mo)
-make train EXPERIMENT=main
-make eval             # les 4 régimes + bootstrap
-make serve            # API sur http://localhost:8000/docs
-```
+Test suite: example-based tests for the cases one thinks of, plus Hypothesis property tests
+for the class of cases one does not. The property tests draw from a pool of real molecules
+and apply identity-preserving transformations — non-canonical SMILES rewriting, atom
+renumbering, explicit-hydrogen variants — which are exactly the transformations a correct
+featuriser must absorb.
+
+---
 
 ## Architecture
 
 ```
-SMILES ──RDKit──> graphe 2D ──GINE×5 (résiduel + JK)──> [B, Na, 256] ─┐
-                                                                      ├─> BAN ─> MLP ─> (μ, log σ²)
-UniProt ──KLIFS──> 85 résidus ──ESM-2 (gelé, cache)──> [B, 85, 256] ─┘         └─> carte de contacts
+SMILES ──RDKit──> 2D graph ──GINE×5 (residual + JK)──> [B, Na, 256] ─┐
+                                                                     ├─> BAN ─> MLP ─> (μ, log σ²)
+UniProt ──KLIFS──> 85 residues ──ESM-2 (frozen, cached)──> [B, 85, 256] ─┘    └─> contact map
 ```
 
-Détails, compromis et justifications : [`docs/architecture.md`](docs/architecture.md).
+The protein encoder is restricted to the 85 KLIFS-aligned ATP-pocket positions rather than
+the full kinase domain, and ESM-2 embeddings are precomputed once into LMDB — the language
+model is never re-run at inference, which is what makes CPU serving viable.
 
-## Limites déclarées
+---
 
-- Restreint aux **inhibiteurs de site ATP** (types I/II). Les allostériques de type III/IV
-  sortent du domaine d'applicabilité par construction.
-- Kinases humaines uniquement, poche KLIFS obligatoirement résolue.
-- L'affinité prédite est un `pAffinity` conditionné sur le type d'essai. Aucune conversion
-  Cheng-Prusoff n'est appliquée.
-- Sur split cold-target, l'échangeabilité requise par la prédiction conforme est violée :
-  la couverture rapportée est empirique, pas garantie.
+## Results
 
-Voir [`MODEL_CARD.md`](MODEL_CARD.md).
+No model has been trained yet. This table is the shape of the result, not the result.
 
-## Citer
+| Split regime | RMSE ↓ | Pearson r ↑ | Spearman ρ ↑ | CI ↑ | PICP@90 % |
+|---|---|---|---|---|---|
+| `random` (optimistic control) | — | — | — | — | — |
+| `scaffold` (cold-drug) | — | — | — | — | — |
+| `cold_target` (leave-group-out) | — | — | — | — | — |
+| `temporal` (prospective) | — | — | — | — | — |
 
-```bibtex
-@software{kinoscope,
-  title  = {KinoScope: leakage-free evaluation of hybrid GNN--PLM models for kinase inhibitor affinity},
-  author = {Coiffard-Donaty, Axel},
-  year   = {2026},
-  url    = {https://github.com/AxelNoun/kinoscope}
-}
-```
+Every published figure will carry its bootstrap 95 % CI and will be regenerated by code,
+never typed by hand.
 
-## Sources de données
+---
 
-ChEMBL (CC BY-SA 3.0) · BindingDB (CC BY 3.0) · KLIFS · UniProt (CC BY 4.0) ·
-PDBbind · Davis & KIBA via Therapeutics Data Commons. Détail dans [`docs/data_card.md`](docs/data_card.md).
+## Defects found and reported
+
+Part of the point of this repository is that the failures are visible.
+
+**`_group_split` ignores its seed.** Each bucket is shuffled and then sorted, which annuls
+the shuffle, and the group-to-bucket assignment is otherwise deterministic. Measured: one
+distinct test partition across four seeds for `scaffold` and `cold_target`, against four for
+`random_split`. Any confidence interval computed across seeds for the group-based regimes
+would therefore be artificially narrow. Documented by an `xfail(strict=True)` test; the fix
+belongs to a later roadmap step because it moves every downstream number.
+
+**The single-batch overfitting check was measuring noise.** The canonical architecture sanity
+check trains 400 steps on four examples and asserts a loss below 0.05. It failed — but with
+all four dropout layers active in training mode. Measured on the same run: 7.13 with default
+dropout, 0.80 re-evaluated in `eval` mode after that same training, 0.0000 with dropout
+disabled. The architecture overfits four examples perfectly; the test was wrong. It also had
+no seed, so the loss varied from 3.3 to 7.1 between runs.
+
+**A test fixture was silently vacuous.** With only five Bemis-Murcko scaffolds, greedy
+80/10/10 bin-packing produced train=240, valid=60, **test=0** — so the scaffold-disjointness
+assertions passed on an empty set. The fixture now carries seventeen ring systems. It
+deliberately keeps cyclopentane, cyclohexane and cycloheptane, whose ECFP4 fingerprints are
+*identical* (every atom has the same radius-2 environment): Tanimoto 1.0 across disjoint
+scaffolds is precisely what a leakage audit must catch.
+
+**`audit_leakage` raised on a degenerate partition.** It now reports NaN and logs a warning
+rather than 0.0, which would read as "no leakage detected".
+
+**A Hydra config could not be parsed at all.** In YAML flow style, the braces of
+`${now:%Y-%m-%d}` are read as a nested mapping; OmegaConf itself failed to load the file, so
+the training entry point would never have started.
+
+---
+
+## Engineering
+
+- **Static analysis**: ruff with 13 rule families and `mypy --strict`, zero violations. Every
+  exemption is justified in place — a `noqa` without a reason is a defect.
+- **Determinism**: one seeding entry point covering `random`, NumPy, torch and CUDA, with
+  strict deterministic algorithms. The two limits that are usually hidden — `PYTHONHASHSEED`
+  only affecting child processes, and `np.random.seed` only touching the legacy global
+  generator — are documented in the module rather than glossed over.
+- **CI**: lint, typecheck, test and a leakage gate. Actions are pinned by commit SHA, the
+  `GITHUB_TOKEN` is scoped to `contents: read`, credentials are not persisted, and the
+  workflows are themselves audited by zizmor.
+- **Pre-commit**: twelve hooks. mypy runs in the project environment rather than an isolated
+  one — the mirrored hook could not see torch or NumPy and reported 36 phantom import errors
+  instead of real ones.
+- **Supply chain**: `gitleaks` over the full history reports no secrets. `pip-audit` reports
+  95 known vulnerabilities across 12 pinned packages; the pins date from September 2024 and
+  need review before any deployment.
+
+---
+
+## Current status
+
+Three of 58 roadmap steps are complete. The foundations are verified; the science is not yet
+done. Known gaps, stated so that nobody discovers them the hard way:
+
+- **No model has been trained.** No number in this repository is a measured result.
+- **Hydra composition does not resolve.** `configs/config.yaml` declares the groups
+  `data: chembl_kinase`, `split: scaffold` and `trainer: single_gpu`, whose files belong to
+  later phases.
+- **`dvc repro` fails.** `dvc.yaml` describes the target pipeline, but five of its
+  dependencies belong to unwritten steps and DVC is not initialised.
+
+---
+
+## Declared limitations
+
+- Restricted to **ATP-site inhibitors** (types I/II). Type III/IV allosteric binders fall
+  outside the applicability domain by construction.
+- Human kinases only, with a resolved KLIFS pocket required.
+- The predicted affinity is a `pAffinity` conditioned on assay type. No Cheng-Prusoff
+  conversion is applied — it requires `[S]` and `Km`, which ChEMBL does not carry.
+- Under a cold-target split the exchangeability required by conformal prediction is violated
+  by construction. Coverage will be reported as empirical, not guaranteed.
+
+See [`MODEL_CARD.md`](MODEL_CARD.md).
+
+---
+
+## Data sources
+
+ChEMBL (CC BY-SA 3.0) · BindingDB (CC BY 3.0) · KLIFS · UniProt (CC BY 4.0) · PDBbind ·
+Davis & KIBA via Therapeutics Data Commons. Details in [`docs/data_card.md`](docs/data_card.md).

@@ -1,20 +1,20 @@
-"""Semis global des générateurs pseudo-aléatoires.
+"""Global seeding of pseudo-random generators.
 
-Toute exécution stochastique du projet passe par `set_global_seed`. Un résultat
-non reproductible est traité comme un bug bloquant, pas comme une fatalité.
+Every stochastic execution in this project goes through `set_global_seed`. A
+non-reproducible result is treated as a blocking bug, not as a fact of life.
 
-Deux limites sont volontairement laissées visibles plutôt que masquées :
+Two limitations are deliberately left visible rather than papered over:
 
-- `PYTHONHASHSEED` est lu par CPython **au démarrage** de l'interpréteur. Le
-  poser depuis un processus déjà lancé ne change rien à ce processus ; cela ne
-  sert qu'aux processus fils (workers `DataLoader` créés par `spawn`, appels à
-  `subprocess`). Le poser reste utile, mais il ne rend pas déterministe l'ordre
-  d'itération d'un `set` du processus courant.
-- `np.random.seed` ne sème que le générateur global hérité. Les fonctions du
-  projet qui instancient leur propre `np.random.default_rng(seed)` — dans
-  `data/splits.py` et `eval/metrics.py` — sont indépendantes de cet état, par
-  construction : leur reproductibilité tient à leur argument `seed`, ce qui est
-  la propriété recherchée.
+- `PYTHONHASHSEED` is read by CPython **at interpreter startup**. Setting it from
+  an already-running process changes nothing for that process; it only matters
+  for child processes (`DataLoader` workers created by `spawn`, `subprocess`
+  calls). Setting it is still worthwhile, but it does not make the current
+  process's `set` iteration order deterministic.
+- `np.random.seed` only seeds the legacy global generator. Functions in this
+  project that instantiate their own `np.random.default_rng(seed)` — in
+  `data/splits.py` and `eval/metrics.py` — are independent of that state by
+  design: their reproducibility rests on their `seed` argument, which is the
+  property we want.
 """
 
 from __future__ import annotations
@@ -25,42 +25,42 @@ import random
 import numpy as np
 import torch
 
-# Exigé par cuBLAS lorsque les algorithmes déterministes sont actifs sur GPU.
-# Sans cette variable, `torch.use_deterministic_algorithms(True)` lève une
-# RuntimeError au premier appel matriciel sur CUDA >= 10.2.
+# Required by cuBLAS when deterministic algorithms are enabled on GPU. Without
+# this variable, `torch.use_deterministic_algorithms(True)` raises a RuntimeError
+# on the first matrix operation under CUDA >= 10.2.
 _CUBLAS_WORKSPACE_CONFIG = ":4096:8"
 
 
 def set_global_seed(seed: int, deterministic: bool = True) -> None:
-    """Sème `random`, `numpy`, `torch` et `torch.cuda`, et fixe le mode déterministe.
+    """Seed `random`, `numpy`, `torch` and `torch.cuda`, and set deterministic mode.
 
     Parameters
     ----------
     seed
-        Graine appliquée à tous les générateurs.
+        Seed applied to every generator.
     deterministic
-        Si vrai, exige des noyaux déterministes. Le mode est **strict** : une
-        opération dépourvue d'implémentation déterministe lève une RuntimeError
-        au lieu de produire silencieusement un résultat irreproductible. C'est
-        l'erreur qui est le signal utile ; `torch.use_deterministic_algorithms`
-        accepte `warn_only=True`, mais l'utiliser ici reviendrait à rendre
-        indétectable exactement ce qu'on cherche à détecter.
+        If true, require deterministic kernels. The mode is **strict**: an
+        operation with no deterministic implementation raises a RuntimeError
+        rather than silently producing an irreproducible result. The error is the
+        useful signal here; `torch.use_deterministic_algorithms` accepts
+        `warn_only=True`, but using it would make undetectable exactly what we
+        are trying to detect.
     """
     os.environ["PYTHONHASHSEED"] = str(seed)
 
     random.seed(seed)
-    # NPY002 recommande `np.random.Generator`, à raison pour du code neuf. Mais
-    # l'objet de cette ligne est précisément de semer le générateur global hérité :
-    # il n'existe aucun moyen de le faire via l'API `Generator`, et c'est cet état
-    # que consomme tout appel `np.random.*` du projet ou de ses dépendances.
+    # NPY002 recommends `np.random.Generator`, rightly so for new code. But the
+    # whole point of this line is to seed the legacy global generator: there is no
+    # way to do that through the `Generator` API, and that state is what every
+    # `np.random.*` call in this project or its dependencies consumes.
     np.random.seed(seed)  # noqa: NPY002
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)  # sans effet si aucun GPU n'est visible
+    torch.cuda.manual_seed_all(seed)  # no effect when no GPU is visible
 
     if deterministic:
         os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", _CUBLAS_WORKSPACE_CONFIG)
     torch.use_deterministic_algorithms(deterministic)
     torch.backends.cudnn.deterministic = deterministic
-    # `benchmark` sélectionne l'algorithme de convolution par mesure de temps :
-    # le choix peut varier d'une exécution à l'autre, donc le résultat aussi.
+    # `benchmark` picks the convolution algorithm by timing it: the choice can
+    # vary from one run to the next, and so can the result.
     torch.backends.cudnn.benchmark = not deterministic

@@ -1,7 +1,7 @@
-"""Métriques d'évaluation DTI, avec intervalles de confiance bootstrap.
+"""DTI evaluation metrics, with bootstrap confidence intervals.
 
-Toute métrique rapportée dans le README doit être accompagnée de son IC 95 %
-bootstrap. Un point isolé sur un test set de 5 000 paires n'est pas un résultat.
+Every metric reported in the README must carry its bootstrap 95 % CI. A single
+point estimate on a 5 000-pair test set is not a result.
 """
 
 from __future__ import annotations
@@ -37,10 +37,10 @@ def rmse(y: npt.NDArray[np.float64], yhat: npt.NDArray[np.float64]) -> float:
 def concordance_index(
     y: npt.NDArray[np.float64], yhat: npt.NDArray[np.float64], *, chunk: int = 2048
 ) -> float:
-    """CI = (paires concordantes + 0.5 * ex aequo) / paires comparables.
+    """CI = (concordant pairs + 0.5 * ties) / comparable pairs.
 
-    Implémentation O(n^2) chunkée : exacte, et suffisante jusqu'à ~5.10^4 points.
-    Au-delà, sous-échantillonner et rapporter la variance.
+    Chunked O(n^2) implementation: exact, and adequate up to ~5e4 points. Beyond
+    that, subsample and report the variance.
     """
     n = len(y)
     concordant = ties = comparable = 0.0
@@ -57,8 +57,8 @@ def concordance_index(
 
 
 def r2m(y: npt.NDArray[np.float64], yhat: npt.NDArray[np.float64]) -> float:
-    """r_m^2 de Roy : pénalise les modèles dont la régression forcée à l'origine
-    diverge du modèle libre. Standard QSAR pour détecter un biais systématique."""
+    """Roy's r_m^2: penalises models whose through-the-origin regression diverges
+    from the free one. The QSAR standard for detecting systematic bias."""
     r2 = stats.pearsonr(y, yhat)[0] ** 2
     k = float(np.sum(y * yhat) / np.sum(yhat**2))
     r0_2 = 1.0 - np.sum((y - k * yhat) ** 2) / np.sum((y - y.mean()) ** 2)
@@ -72,8 +72,8 @@ def enrichment_factor(
     threshold: float,
     fraction: float = 0.01,
 ) -> float:
-    """EF à x % : facteur d'enrichissement en actifs dans le top x % du ranking.
-    Métrique de triage réel de librairie, plus parlante qu'une RMSE."""
+    """EF at x %: enrichment in actives within the top x % of the ranking.
+    A real library-triage metric, more informative than an RMSE."""
     active = y >= threshold
     if active.sum() == 0:
         return float("nan")
@@ -109,7 +109,7 @@ def bootstrap_ci(
     seed: int = 0,
     activity_threshold: float = 6.5,
 ) -> dict[str, tuple[float, float, float]]:
-    """Retourne {métrique: (valeur, borne_basse, borne_haute)} par bootstrap percentile."""
+    """Returns {metric: (value, lower, upper)} by percentile bootstrap."""
     rng = np.random.default_rng(seed)
     point = compute_metrics(y, yhat, activity_threshold=activity_threshold).to_dict()
     draws: dict[str, list[float]] = {k: [] for k in point}

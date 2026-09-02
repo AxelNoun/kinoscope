@@ -8,19 +8,19 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Aucun job de ce workflow n'écrit dans le dépôt : la lecture du contenu suffit.
-# Sans ce bloc, le GITHUB_TOKEN hérite des permissions par défaut de l'organisation,
-# qui peuvent inclure l'écriture. Le déclarer au niveau workflow le fige pour tous
-# les jobs, y compris ceux ajoutés plus tard.
+# No job in this workflow writes to the repository, so read access is enough.
+# Without this block the GITHUB_TOKEN inherits the organisation defaults, which
+# may include write. Declaring it at workflow level pins it for every job,
+# including any added later.
 permissions:
   contents: read
 
 env:
   PYTHON_VERSION: "3.11"
 
-# Les actions sont épinglées par SHA de commit, pas par tag : un tag est mutable et
-# peut être redirigé vers un commit malveillant sans changer la ligne `uses:`.
-# Le commentaire donne la version lisible correspondante.
+# Actions are pinned by commit SHA rather than tag: a tag is mutable and can be
+# repointed at a malicious commit without the `uses:` line changing. The trailing
+# comment gives the human-readable version.
 jobs:
   lint:
     name: Lint (ruff)
@@ -46,7 +46,7 @@ jobs:
       - run: mypy src
 
   test:
-    name: Tests unitaires et d'intégration
+    name: Unit and integration tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -59,17 +59,16 @@ jobs:
           pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
           pip install -e ".[serve,dev]"
       - name: Run test suite
-        # Le profil `ci` porte Hypothesis à 200 exemples : en local le défaut
-        # `dev` (25 exemples) rend la main vite, la CI cherche réellement des
-        # contre-exemples.
+        # The `ci` profile raises Hypothesis to 200 examples. Locally the `dev`
+        # default (25) returns quickly; CI actually searches for counterexamples.
         env: { HYPOTHESIS_PROFILE: ci }
         run: pytest -n auto -m "not slow and not network" --cov=kinoscope --cov-report=xml
       - uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.6.0
         with: { files: coverage.xml, fail_ci_if_error: false }
 
-  # Garde-fou scientifique : la CI échoue si un split laisse fuiter des données.
+  # Scientific gate: CI fails if a split leaks data between train and test.
   leakage-gate:
-    name: Garde-fou de fuite de données
+    name: Data-leakage gate
     runs-on: ubuntu-latest
     needs: test
     steps:
@@ -82,11 +81,11 @@ jobs:
           pip install -e ".[dev]"
       - run: pytest tests/unit/test_splits.py tests/unit/test_splits_properties.py -v --no-cov
 
-  # Analyse statique des workflows eux-mêmes. `pipx` est préinstallé sur les runners
-  # GitHub : lancer zizmor par ce biais évite d'ajouter une action tierce — donc une
-  # dépendance de plus dans la chaîne d'approvisionnement — au workflow qu'il audite.
+  # Static analysis of the workflows themselves. `pipx` is preinstalled on GitHub
+  # runners, so invoking zizmor this way avoids adding a third-party action — one
+  # more supply-chain dependency — to the very workflow it audits.
   workflows:
-    name: Audit des workflows (zizmor)
+    name: Workflow audit (zizmor)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0

@@ -176,7 +176,7 @@ def test_cold_pair_split_is_included_in_both_parent_splits(toy_df: pd.DataFrame)
 
 
 def test_cold_target_split_rejects_an_unknown_grouping_column(toy_df: pd.DataFrame) -> None:
-    with pytest.raises(KeyError, match="colonne de regroupement absente"):
+    with pytest.raises(KeyError, match="grouping column not found"):
         cold_target_split(toy_df, by="colonne_inexistante")
 
 

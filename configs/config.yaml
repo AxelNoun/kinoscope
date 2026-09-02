@@ -1,4 +1,4 @@
-# Point d'entrée Hydra. Surcharger en CLI : python scripts/train.py split=cold_target
+# Hydra entry point. Override from the CLI: python scripts/train.py split=cold_target
 defaults:
   - _self_
   - data: chembl_kinase
@@ -8,6 +8,8 @@ defaults:
 
 seed: 42
 paths:
+  # `PWD` is a POSIX shell variable: present under bash, absent under PowerShell.
+  # Without a default, OmegaConf raises InterpolationResolutionError.
   root: ${oc.env:PWD,.}
   processed: ${paths.root}/data/processed
   artifacts: ${paths.root}/artifacts
@@ -21,6 +23,8 @@ logging:
   experiment_name: kinoscope
   log_every_n_steps: 25
 
+# Block style is mandatory here: in flow style the braces of `${now:...}` are read
+# as a nested mapping and the file fails to parse — OmegaConf itself included.
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}

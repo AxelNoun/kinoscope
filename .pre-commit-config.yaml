@@ -21,15 +21,15 @@ repos:
         args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
 
-  # mypy tourne dans l'environnement du projet, pas dans un venv isolé. L'analyse
-  # a besoin du stack complet (torch, numpy, pandas-stubs, pydantic) : le miroir
-  # `mirrors-mypy`, qui ne peut installer que quelques paquets de stubs, signalait
-  # 36 imports introuvables au lieu des vraies erreurs. `language: system` garantit
-  # que le hook et `make typecheck` rendent le même verdict.
+  # mypy runs in the project environment, not an isolated venv. The analysis needs
+  # the full stack (torch, numpy, pandas-stubs, pydantic): the `mirrors-mypy` hook,
+  # which can only install a few stub packages, reported 36 unresolved imports
+  # instead of real errors. `language: system` guarantees that the hook and
+  # `make typecheck` return the same verdict.
   - repo: local
     hooks:
       - id: mypy
-        name: mypy (environnement du projet)
+        name: mypy (project environment)
         entry: mypy
         language: system
         args: [src]

@@ -1,4 +1,4 @@
-"""LightningModule : boucle d'entraînement, optimiseur, logging des métriques."""
+"""LightningModule: training loop, optimiser, metric logging."""
 
 from __future__ import annotations
 
@@ -41,9 +41,9 @@ class KinoScopeModule(L.LightningModule):
     def _step(self, batch: dict[str, Any], stage: str) -> torch.Tensor:
         out = self.model(batch)
 
-        # Warmup : les premiers pas utilisent une MSE pure. Optimiser la
-        # log-vraisemblance gaussienne dès le pas 0 laisse le modèle réduire la
-        # perte en gonflant sigma sans jamais améliorer mu.
+        # Warmup: the first steps use a plain MSE. Optimising the Gaussian
+        # log-likelihood from step 0 lets the model reduce the loss by inflating
+        # sigma without ever improving mu.
         if stage == "train" and self.global_step < self.hparams["mse_warmup_steps"]:
             loss = torch.nn.functional.mse_loss(out["affinity_mu"], batch["p_affinity"])
             losses = {"loss": loss, "loss_affinity": loss.detach()}
@@ -99,8 +99,8 @@ class KinoScopeModule(L.LightningModule):
         self._flush("test")
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
-        # Pas de weight decay sur les normalisations et les biais : convention
-        # standard, mesurablement meilleure sur les architectures à LayerNorm.
+        # No weight decay on normalisation layers and biases: standard practice,
+        # measurably better on LayerNorm-based architectures.
         decay: list[torch.nn.Parameter] = []
         no_decay: list[torch.nn.Parameter] = []
         for name, p in self.model.named_parameters():

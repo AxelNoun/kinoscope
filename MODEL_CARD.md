@@ -1,39 +1,46 @@
 # Model Card — KinoScope v0.1.0
 
-## Détails
+> **Status: no model has been trained yet.** This card describes the intended model and the
+> commitments made about how it will be reported. Every quantitative field is a placeholder
+> until a training run exists.
 
-- **Architecture** : GINE (5 couches, 256d, Jumping Knowledge) × ESM-2 650M gelé sur poche KLIFS 85 résidus, fusion par Bilinear Attention Network (4 têtes, rang 96).
-- **Sortie** : `pAffinity` (μ) et variance aléatorique (log σ²), logit d'activité, carte d'interaction atome–résidu.
-- **Paramètres entraînables** : ~XX M (ESM-2 exclu, gelé).
-- **Licence** : Apache-2.0.
+## Details
 
-## Usage prévu
+- **Architecture**: GINE (5 layers, 256d, Jumping Knowledge) × frozen ESM-2 650M over the
+  85-residue KLIFS pocket, fused by a Bilinear Attention Network (4 heads, rank 96).
+- **Output**: `pAffinity` (μ) with aleatoric variance (log σ²), an activity logit, and an
+  atom–residue interaction map.
+- **Trainable parameters**: not yet measured (ESM-2 excluded, frozen).
+- **Licence**: Apache-2.0.
 
-Triage de librairies et priorisation de composés en phase hit-finding sur kinases humaines.
-**Non destiné** à un usage clinique, réglementaire, ou à la substitution d'un essai biochimique.
+## Intended use
 
-## Données d'entraînement
+Library triage and compound prioritisation during hit-finding on human kinases.
+**Not intended** for clinical or regulatory use, nor as a substitute for a biochemical assay.
 
-Voir `docs/data_card.md`. Sources : ChEMBL (assay_type='B', confidence ≥ 8, relation '='),
-BindingDB, Davis, KIBA. Agrégation par médiane de pChEMBL, rejet si σ inter-mesures > 1.0 log.
+## Training data
 
-## Évaluation
+See `docs/data_card.md`. Sources: ChEMBL (`assay_type='B'`, confidence ≥ 8, relation `'='`),
+BindingDB, Davis, KIBA. Aggregated by median pChEMBL, rejecting pairs whose inter-measurement
+standard deviation exceeds 1.0 log unit.
 
-Quatre régimes de partition, métriques accompagnées d'IC 95 % bootstrap. Le régime
-`random` est rapporté uniquement comme témoin de fuite, **jamais** comme performance du modèle.
+## Evaluation
 
-## Limites et biais connus
+Four split regimes, with every metric accompanied by a bootstrap 95 % confidence interval.
+The `random` regime is reported solely as a leakage control, **never** as model performance.
 
-| Limite | Conséquence |
+## Known limitations and biases
+
+| Limitation | Consequence |
 |---|---|
-| Domaine restreint au site ATP (types I/II) | Prédictions non fiables pour les allostériques III/IV |
-| Biais de publication ChEMBL vers les actifs | Sous-représentation des vrais négatifs ; Davis fournit une matrice complète en contrepoids |
-| Kinome humain uniquement | Aucune extrapolation inter-espèces validée |
-| Conformation DFG non modélisée explicitement | Les inhibiteurs de type II sont traités comme des type I |
-| Échangeabilité violée sous cold-target | Couverture conforme empirique, non garantie |
-| Hétérogénéité IC50/Ki/Kd | Traitée par covariable d'essai ; comparaisons inter-endpoints à éviter |
+| Domain restricted to the ATP site (types I/II) | Predictions unreliable for type III/IV allosteric binders |
+| ChEMBL publication bias towards actives | True negatives under-represented; Davis provides a complete matrix as counterweight |
+| Human kinome only | No validated cross-species extrapolation |
+| DFG conformation not modelled explicitly | Type II inhibitors are treated as type I |
+| Exchangeability violated under cold-target splits | Conformal coverage is empirical, not guaranteed |
+| IC50/Ki/Kd heterogeneity | Handled as an assay covariate; cross-endpoint comparisons should be avoided |
 
-## Considérations éthiques
+## Ethical considerations
 
-Le modèle est un outil de priorisation. Une prédiction hors domaine d'applicabilité
-(Tanimoto NN < 0.35) est signalée et doit être écartée, pas arrondie à la hausse.
+The model is a prioritisation tool. A prediction outside the applicability domain
+(nearest-neighbour Tanimoto < 0.35) is flagged and must be discarded, not rounded up.

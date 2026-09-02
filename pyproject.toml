@@ -49,9 +49,9 @@ dev = [
     "dvc[s3]==3.55.2",
     "mkdocs-material==9.5.34",
     "nbstripout==0.7.1",
-    # Stubs de typage : `pandas` et `scipy` ne livrent pas de `py.typed`,
-    # mais publient des stubs officiels. Les installer plutôt que de les
-    # exclure de mypy conserve la vérification aux frontières du code.
+    # Typing stubs: `pandas` and `scipy` ship no `py.typed` but publish official
+    # stubs. Installing them rather than excluding them from mypy keeps type
+    # checking alive at the code boundaries.
     "pandas-stubs==2.2.2.240807",
     "scipy-stubs==1.14.1.5",
 ]
@@ -76,20 +76,20 @@ src = ["src", "tests", "scripts"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "ARG", "PTH", "RUF", "NPY"]
 ignore = [
-    "E501",  # longueur de ligne : déléguée à `ruff format`
-    "B008",  # appel dans une valeur par défaut : idiome FastAPI (`Depends(...)`)
-    "N803",  # argument en majuscule : X, H sont la notation standard en ML
-    "N806",  # variable locale en majuscule : idem
-    # `torch.nn.functional as F` et `lightning as L` sont les alias conventionnels
-    # de ces deux bibliothèques ; les renommer nuirait plus qu'il n'aiderait.
+    "E501",  # line length: delegated to `ruff format`
+    "B008",  # call in a default value: the FastAPI `Depends(...)` idiom
+    "N803",  # uppercase argument: X, H are standard ML notation
+    "N806",  # uppercase local variable: same
+    # `torch.nn.functional as F` and `lightning as L` are the conventional aliases
+    # for those libraries; renaming them would hurt more than it helps.
     "N812",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ARG", "S101"]
-# `lr`, `weight_decay`, `warmup_pct` et `mse_warmup_steps` sont consommés via
-# `self.hparams` après `save_hyperparameters()` ; `batch_idx` est imposé par la
-# signature de l'API Lightning. Ruff ne peut voir ni l'un ni l'autre.
+# `lr`, `weight_decay`, `warmup_pct` and `mse_warmup_steps` are consumed through
+# `self.hparams` after `save_hyperparameters()`; `batch_idx` is imposed by the
+# Lightning API signature. Ruff can see neither.
 "src/kinoscope/models/lit_module.py" = ["ARG002"]
 
 # --------------------------------------------------------------------------- #
@@ -100,30 +100,29 @@ warn_unused_ignores = true
 disallow_untyped_decorators = false
 plugins = []
 
-# Bibliothèques sans `py.typed` ni paquet de stubs publié : l'analyse s'arrête à
-# leur frontière. La liste est volontairement courte — `pandas` et `scipy` en sont
-# absents parce que leurs stubs existent et sont installés (cf. `dev`).
+# Libraries shipping neither `py.typed` nor a published stub package: analysis
+# stops at their boundary. The list is deliberately short — `pandas` and `scipy`
+# are absent because their stubs exist and are installed (see the `dev` extra).
 [[tool.mypy.overrides]]
 module = [
-    "torch_geometric.*",  # PyG ne publie pas de py.typed (2.6.1)
-    "lmdb.*",             # aucun stub publié
-    "mlflow.*",           # aucun stub publié
-    "Bio.*",              # Biopython ne publie pas de py.typed (1.84)
-    "sklearn.*",          # scikit-learn ne publie pas de py.typed (1.5.1)
-    "joblib.*",           # aucun stub publié
+    "torch_geometric.*",  # PyG ships no py.typed (2.6.1)
+    "lmdb.*",             # no published stubs
+    "mlflow.*",           # no published stubs
+    "Bio.*",              # Biopython ships no py.typed (1.84)
+    "sklearn.*",          # scikit-learn ships no py.typed (1.5.1)
+    "joblib.*",           # no published stubs
 ]
 ignore_missing_imports = true
 
-# RDKit 2024.3.5 livre un paquet `rdkit-stubs` qui ne se parse pas :
-# `rdkit-stubs/Chem/rdmolfiles.pyi:272` place un argument sans valeur par défaut
-# après un argument qui en a une. `ignore_missing_imports` ne suffit pas — mypy
-# trouve les stubs et les analyse quand même. `follow_imports = "skip"` est le
-# seul réglage qui l'en empêche.
+# RDKit 2024.3.5 ships an `rdkit-stubs` package that does not parse:
+# `rdkit-stubs/Chem/rdmolfiles.pyi:272` places a non-default argument after a
+# default one. `ignore_missing_imports` is not enough — mypy finds the stubs and
+# analyses them anyway. `follow_imports = "skip"` is the only setting that stops it.
 [[tool.mypy.overrides]]
 module = ["rdkit.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
-follow_imports_for_stubs = true  # sans quoi `follow_imports` ne s'applique pas aux .pyi
+follow_imports_for_stubs = true  # otherwise `follow_imports` skips .pyi files
 
 # --------------------------------------------------------------------------- #
 [tool.pytest.ini_options]

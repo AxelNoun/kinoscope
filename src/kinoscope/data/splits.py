@@ -1,8 +1,8 @@
-"""Stratégies de partitionnement et audit de fuite de données.
+"""Split strategies and data-leakage audit.
 
-C'est le module central du projet : la thèse scientifique de KinoScope est que
-les performances DTI publiées s'effondrent dès que la partition interdit au
-modèle de mémoriser un ligand ou une cible déjà vus.
+This is the central module of the project: KinoScope's scientific claim is that
+published DTI performance collapses as soon as the split forbids the model from
+memorising an already-seen ligand or target.
 """
 
 from __future__ import annotations
@@ -51,11 +51,11 @@ def murcko_scaffold(smiles: str, *, include_chirality: bool = False) -> str:
 
 
 def butina_clusters(smiles: list[str], cutoff: float = 0.6) -> list[int]:
-    """Clustering Butina sur distance Tanimoto ECFP4.
+    """Butina clustering on ECFP4 Tanimoto distance.
 
-    ``cutoff`` est une *distance* : 0.6 correspond à une similarité Tanimoto de
-    0.4, seuil au-delà duquel deux composés sont généralement considérés comme
-    appartenant à la même série chimique.
+    ``cutoff`` is a *distance*: 0.6 corresponds to a Tanimoto similarity of 0.4,
+    the threshold above which two compounds are generally taken to belong to the
+    same chemical series.
     """
     fps = morgan_fingerprints(smiles)
     n = len(fps)
@@ -72,15 +72,20 @@ def butina_clusters(smiles: list[str], cutoff: float = 0.6) -> list[int]:
 
 
 # --------------------------------------------------------------------------- #
-# Stratégies
+# Strategies
 # --------------------------------------------------------------------------- #
 def _group_split(
     groups: list[int] | list[str], frac: tuple[float, float, float], seed: int
 ) -> Split:
-    """Partitionne des *groupes* entiers, du plus gros au plus petit (greedy bin-packing).
+    """Partition whole *groups*, largest first (greedy bin-packing).
 
-    Le remplissage glouton évite qu'un cluster massif déséquilibre le test set,
-    ce qui arrive avec un simple shuffle de groupes.
+    Greedy filling prevents a massive cluster from unbalancing the test set, which
+    is what a plain shuffle of groups does.
+
+    Known defect: each bucket is shuffled and then sorted, which annuls the shuffle,
+    and the group-to-bucket assignment is otherwise deterministic. `seed` therefore
+    has no effect on any group-based split. See the `xfail` test
+    `test_group_splits_should_depend_on_the_seed`.
     """
     rng = np.random.default_rng(seed)
     members: dict[object, list[int]] = defaultdict(list)
@@ -105,7 +110,7 @@ def _group_split(
 def random_split(
     df: pd.DataFrame, frac: tuple[float, float, float] = (0.8, 0.1, 0.1), seed: int = 42
 ) -> Split:
-    """Témoin optimiste. Sert uniquement à quantifier l'ampleur de la fuite."""
+    """Optimistic control. Used solely to quantify how large the leakage is."""
     rng = np.random.default_rng(seed)
     idx = rng.permutation(len(df))
     n_tr, n_va = int(frac[0] * len(df)), int(frac[1] * len(df))
@@ -115,7 +120,7 @@ def random_split(
 def scaffold_split(
     df: pd.DataFrame, frac: tuple[float, float, float] = (0.8, 0.1, 0.1), seed: int = 42
 ) -> Split:
-    """Cold-drug par squelette de Bemis-Murcko."""
+    """Cold-drug by Bemis-Murcko scaffold."""
     scaffolds = [murcko_scaffold(s) for s in df["smiles"]]
     return _group_split(scaffolds, frac, seed)
 
@@ -126,7 +131,7 @@ def butina_split(
     frac: tuple[float, float, float] = (0.8, 0.1, 0.1),
     seed: int = 42,
 ) -> Split:
-    """Cold-drug plus strict : clusters de similarité, pas seulement de squelette."""
+    """Stricter cold-drug: similarity clusters, not just scaffolds."""
     return _group_split(butina_clusters(list(df["smiles"]), cutoff), frac, seed)
 
 
@@ -137,17 +142,17 @@ def cold_target_split(
     *,
     by: str = "manning_group",
 ) -> Split:
-    """Cold-target. ``by='manning_group'`` = leave-group-out (le régime le plus dur) ;
-    ``by='uniprot'`` = cibles inédites mais familles potentiellement vues."""
+    """Cold-target. ``by='manning_group'`` is leave-group-out, the hardest regime;
+    ``by='uniprot'`` gives unseen targets but possibly already-seen families."""
     if by not in df.columns:
-        raise KeyError(f"colonne de regroupement absente: {by}")
+        raise KeyError(f"grouping column not found: {by}")
     return _group_split(list(df[by]), frac, seed)
 
 
 def cold_pair_split(
     df: pd.DataFrame, frac: tuple[float, float, float] = (0.8, 0.1, 0.1), seed: int = 42
 ) -> Split:
-    """Intersection cold-drug x cold-target : le seul régime réellement prospectif."""
+    """Cold-drug x cold-target intersection: the only genuinely prospective regime."""
     drug = scaffold_split(df, frac, seed)
     target = cold_target_split(df, frac, seed)
     d = {k: set(getattr(drug, k).tolist()) for k in ("train", "valid", "test")}
@@ -162,7 +167,7 @@ def cold_pair_split(
 def temporal_split(
     df: pd.DataFrame, *, valid_year: int, test_year: int, year_col: str = "doc_year"
 ) -> Split:
-    """Proxy prospectif : on entraîne sur le passé, on teste sur le futur."""
+    """Prospective proxy: train on the past, test on the future."""
     y = df[year_col].to_numpy()
     return Split(
         np.flatnonzero(y < valid_year),
@@ -172,7 +177,7 @@ def temporal_split(
 
 
 # --------------------------------------------------------------------------- #
-# Audit de fuite
+# Leakage audit
 # --------------------------------------------------------------------------- #
 @dataclass
 class LeakageReport:
@@ -186,20 +191,20 @@ class LeakageReport:
     frac_test_above_0_7: float
 
     def assert_clean(self, *, allow_shared_targets: bool = True) -> None:
-        assert self.shared_inchikeys == 0, f"{self.shared_inchikeys} ligands partagés train/test"
-        assert self.shared_scaffolds == 0, f"{self.shared_scaffolds} scaffolds partagés train/test"
+        assert self.shared_inchikeys == 0, f"{self.shared_inchikeys} ligands shared train/test"
+        assert self.shared_scaffolds == 0, f"{self.shared_scaffolds} scaffolds shared train/test"
         if not allow_shared_targets:
-            assert self.shared_uniprots == 0, f"{self.shared_uniprots} cibles partagées train/test"
+            assert self.shared_uniprots == 0, f"{self.shared_uniprots} targets shared train/test"
 
 
 def audit_leakage(
     df: pd.DataFrame, split: Split, *, sample: int = 2000, seed: int = 0
 ) -> LeakageReport:
-    """Quantifie la fuite résiduelle entre train et test.
+    """Quantify the residual leakage between train and test.
 
-    La similarité maximale train-test est échantillonnée (O(n*m) exact serait
-    prohibitif sur 10^5 x 10^4) : c'est une borne inférieure honnête, pas une
-    garantie. Le rapport est écrit dans ``docs/leakage_analysis.md``.
+    The maximum train-test similarity is *sampled* (an exact O(n*m) computation
+    would be prohibitive at 1e5 x 1e4): it is an honest lower bound, not a
+    guarantee, and the report says so. Written to ``docs/leakage_analysis.md``.
     """
     rng = np.random.default_rng(seed)
     tr, te = df.iloc[split.train], df.iloc[split.test]
@@ -216,13 +221,13 @@ def audit_leakage(
     te_s = rng.choice(te_smi, size=min(sample, len(te_smi)), replace=False)
     fp_tr, fp_te = morgan_fingerprints(list(tr_s)), morgan_fingerprints(list(te_s))
 
-    # Partition dégénérée (train ou test vide) : la similarité au plus proche voisin
-    # n'est pas définie. On rapporte NaN plutôt que de lever, et surtout plutôt que
-    # de renvoyer 0.0 — qui se lirait à tort comme « aucune fuite détectée ».
+    # Degenerate partition (empty train or test): nearest-neighbour similarity is
+    # undefined. Report NaN rather than raising, and above all rather than returning
+    # 0.0 — which would wrongly read as 'no leakage detected'.
     if not fp_tr or not fp_te:
         logger.warning(
-            "audit de fuite sur une partition dégénérée (train=%d, test=%d composés uniques) : "
-            "similarité au plus proche voisin non définie",
+            "leakage audit on a degenerate partition (train=%d, test=%d unique "
+            "compounds): nearest-neighbour similarity is undefined",
             len(fp_tr),
             len(fp_te),
         )

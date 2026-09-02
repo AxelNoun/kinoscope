@@ -1,13 +1,13 @@
-"""Prédiction conforme normalisée (split conformal + variante Mondrian).
+"""Normalised conformal prediction (split conformal plus a Mondrian variant).
 
-Garantie : sous hypothèse d'échangeabilité entre calibration et test, la
-couverture marginale est >= 1 - alpha, indépendamment du modèle.
+Guarantee: under the assumption of exchangeability between calibration and test,
+marginal coverage is >= 1 - alpha, independently of the model.
 
-Avertissement méthodologique à conserver dans le model card : sur un split
-cold-target, l'échangeabilité est VIOLÉE par construction (shift de covariables).
-La couverture empirique observée est donc un résultat à mesurer et à rapporter,
-pas une garantie. La conformalisation Mondrian par groupe de Manning restaure
-partiellement la validité conditionnelle.
+Methodological warning, to be carried over into the model card: under a
+cold-target split, exchangeability is VIOLATED by construction (covariate shift).
+The empirical coverage observed there is therefore a result to be measured and
+reported, not a guarantee. Mondrian conformalisation by Manning group partially
+restores conditional validity.
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ class ConformalCalibrator:
         mu: npt.NDArray[np.float64],
         sigma: npt.NDArray[np.float64],
     ) -> npt.NDArray[np.float64]:
-        """Score normalisé |y - mu| / sigma : produit des intervalles adaptatifs,
-        plus larges là où le modèle se déclare lui-même incertain."""
+        """Normalised score |y - mu| / sigma, which yields adaptive intervals —
+        wider where the model declares itself uncertain."""
         scores: npt.NDArray[np.float64] = np.abs(y - mu) / np.clip(sigma, 1e-6, None)
         return scores
 
@@ -41,7 +41,7 @@ class ConformalCalibrator:
         n = len(scores)
         if n == 0:
             return float("nan")
-        level = min(1.0, np.ceil((n + 1) * (1 - alpha)) / n)  # correction d'échantillon fini
+        level = min(1.0, np.ceil((n + 1) * (1 - alpha)) / n)  # finite-sample correction
         return float(np.quantile(scores, level, method="higher"))
 
     def fit(
@@ -57,8 +57,8 @@ class ConformalCalibrator:
             self.group_quantiles_ = {}
             for g in np.unique(groups):
                 m = groups == g
-                # Repli sur le quantile marginal si le groupe est trop petit pour
-                # supporter le niveau demandé (n < 1/alpha - 1).
+                # Fall back to the marginal quantile when the group is too small
+                # to support the requested level (n < 1/alpha - 1).
                 self.group_quantiles_[str(g)] = (
                     self._conformal_quantile(scores[m], self.alpha)
                     if m.sum() >= int(np.ceil(1 / self.alpha)) - 1
@@ -85,8 +85,9 @@ def coverage_metrics(
     lo: npt.NDArray[np.float64],
     hi: npt.NDArray[np.float64],
 ) -> dict[str, float]:
-    """PICP = couverture empirique ; MPIW = largeur moyenne d'intervalle.
-    Un PICP correct avec un MPIW énorme est un modèle inutile : rapporter les deux."""
+    """PICP is empirical coverage; MPIW is mean interval width.
+
+    Correct PICP with enormous MPIW is a useless model: report both."""
     inside = (y >= lo) & (y <= hi)
     return {
         "picp": float(inside.mean()),

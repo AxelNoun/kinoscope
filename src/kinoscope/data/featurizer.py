@@ -1,6 +1,6 @@
 """Featurisation ligand : RDKit Mol -> torch_geometric.data.Data.
 
-Les cardinalités produites ici DOIVENT rester synchronisées avec
+The cardinalities produced here MUST stay synchronised with
 ``kinoscope.models.model.ATOM_FEATURE_DIMS`` / ``BOND_FEATURE_DIMS``.
 Le test ``tests/unit/test_featurizer.py::test_feature_dims_match_model``
 verrouille cet invariant.
@@ -13,7 +13,7 @@ from rdkit import Chem
 from rdkit.Chem.rdchem import BondType, ChiralType, HybridizationType
 from torch_geometric.data import Data
 
-# --- tables de correspondance (index 0 = <unk>/défaut) ---------------------- #
+# --- lookup tables (index 0 = <unk>/default) -------------------------------- #
 HYBRIDIZATION: dict[HybridizationType, int] = {
     HybridizationType.SP: 1,
     HybridizationType.SP2: 2,
@@ -71,7 +71,7 @@ def bond_features(bond: Chem.Bond) -> list[int]:
 
 
 def mol_to_graph(mol: Chem.Mol, *, inchikey: str | None = None) -> Data:
-    """Graphe non orienté représenté par ses deux arcs (convention PyG)."""
+    """Undirected graph represented by both directed arcs (PyG convention)."""
     if mol is None:
         raise ValueError("mol is None")
     if mol.GetNumHeavyAtoms() == 0:
@@ -92,7 +92,7 @@ def mol_to_graph(mol: Chem.Mol, *, inchikey: str | None = None) -> Data:
     if src:
         edge_index = torch.tensor([src, dst], dtype=torch.long)
         edge_attr = torch.tensor(edge_feats, dtype=torch.long)
-    else:  # molécule mono-atomique après filtrage : graphe sans arête
+    else:  # single-atom molecule after filtering: edgeless graph
         edge_index = torch.zeros((2, 0), dtype=torch.long)
         edge_attr = torch.zeros((0, N_BOND_FEATURES), dtype=torch.long)
 
