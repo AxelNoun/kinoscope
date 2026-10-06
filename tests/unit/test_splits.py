@@ -3,22 +3,32 @@ they fall, every figure in the README is invalid."""
 
 from __future__ import annotations
 
+import math
+from dataclasses import asdict, replace
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 from rdkit import Chem, RDLogger
 
 from kinoscope.data.splits import (
+    LeakageReport,
+    LeakageThresholds,
     audit_leakage,
     butina_clusters,
     butina_split,
     cold_pair_split,
     cold_target_split,
+    load_leakage_thresholds,
     murcko_scaffold,
     random_split,
     scaffold_split,
     temporal_split,
 )
+
+_SPLIT_CONFIG_DIR = Path(__file__).resolve().parents[2] / "configs" / "split"
+_SPLIT_CONFIGS = sorted(_SPLIT_CONFIG_DIR.glob("*.yaml"))
 
 # Seventeen distinct ring systems, each declined in four alkyl-chain lengths.
 # Three properties of this list are deliberate.
@@ -194,3 +204,155 @@ def test_audit_on_a_degenerate_partition_reports_nan_not_zero(toy_df: pd.DataFra
     assert np.isnan(report.max_tanimoto_train_test)
     assert np.isnan(report.frac_test_above_0_7)
     assert report.n_test == 0
+
+
+# --------------------------------------------------------------------------- #
+# Leakage gate: thresholds declared in configs/split/*.yaml
+# --------------------------------------------------------------------------- #
+_THRESHOLDS = LeakageThresholds(
+    max_shared_inchikeys=0,
+    max_shared_uniprots=2,
+    max_shared_scaffolds=0,
+    max_tanimoto_train_test=0.85,
+)
+
+
+def _report_at(thresholds: LeakageThresholds) -> LeakageReport:
+    """A report sitting exactly on every threshold: the gate must accept it."""
+    return LeakageReport(
+        n_train=80,
+        n_valid=10,
+        n_test=10,
+        shared_inchikeys=thresholds.max_shared_inchikeys or 0,
+        shared_uniprots=thresholds.max_shared_uniprots or 0,
+        shared_scaffolds=thresholds.max_shared_scaffolds or 0,
+        max_tanimoto_train_test=thresholds.max_tanimoto_train_test or 0.0,
+        frac_test_above_0_7=0.0,
+    )
+
+
+def test_split_configs_are_found() -> None:
+    """Guards the parametrisation below: an empty glob would skip it silently."""
+    assert _SPLIT_CONFIGS, f"no split config under {_SPLIT_CONFIG_DIR}"
+
+
+@pytest.mark.parametrize("path", _SPLIT_CONFIGS, ids=lambda p: p.stem)
+def test_every_split_config_declares_valid_audit_thresholds(path: Path) -> None:
+    thresholds = load_leakage_thresholds(path)
+    _report_at(thresholds).assert_clean(thresholds=thresholds)
+
+
+def test_scaffold_config_leaves_targets_unchecked_and_cold_target_does_not() -> None:
+    """The one deliberate difference between the two configs: targets are shared by
+    design in the cold-drug regime, forbidden in the cold-target one."""
+    scaffold = load_leakage_thresholds(_SPLIT_CONFIG_DIR / "scaffold.yaml")
+    cold_target = load_leakage_thresholds(_SPLIT_CONFIG_DIR / "cold_target.yaml")
+    assert scaffold.max_shared_uniprots is None
+    assert cold_target.max_shared_uniprots == 0
+
+
+def test_gate_accepts_a_report_on_every_threshold() -> None:
+    _report_at(_THRESHOLDS).assert_clean(thresholds=_THRESHOLDS)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("shared_inchikeys", 1),
+        ("shared_uniprots", 3),
+        ("shared_scaffolds", 1),
+        ("max_tanimoto_train_test", 0.86),
+    ],
+)
+def test_gate_rejects_each_exceeded_threshold(field: str, value: float) -> None:
+    report = replace(_report_at(_THRESHOLDS), **{field: value})
+    threshold_name = field if field.startswith("max_") else f"max_{field}"
+    with pytest.raises(AssertionError, match=f"above {threshold_name}="):
+        report.assert_clean(thresholds=_THRESHOLDS)
+
+
+def test_gate_lists_every_violation_at_once() -> None:
+    report = replace(_report_at(_THRESHOLDS), shared_scaffolds=4, max_tanimoto_train_test=1.0)
+    assert len(report.violations(_THRESHOLDS)) == 2
+
+
+def test_null_threshold_disables_only_its_own_check() -> None:
+    open_targets = replace(_THRESHOLDS, max_shared_uniprots=None)
+    report = replace(_report_at(_THRESHOLDS), shared_uniprots=500)
+    report.assert_clean(thresholds=open_targets)
+    with pytest.raises(AssertionError, match="max_shared_scaffolds"):
+        replace(report, shared_scaffolds=1).assert_clean(thresholds=open_targets)
+
+
+def test_gate_fails_when_the_similarity_could_not_be_measured() -> None:
+    """``audit_leakage`` reports NaN on an empty train or test partition. NaN compares
+    False with everything, so a plain ``>`` would let it through the ceiling."""
+    report = replace(_report_at(_THRESHOLDS), max_tanimoto_train_test=math.nan)
+    with pytest.raises(AssertionError, match="cannot be verified"):
+        report.assert_clean(thresholds=_THRESHOLDS)
+    report.assert_clean(thresholds=replace(_THRESHOLDS, max_tanimoto_train_test=None))
+
+
+def test_assert_clean_without_thresholds_keeps_the_historical_rules() -> None:
+    report = replace(_report_at(_THRESHOLDS), shared_uniprots=3, max_tanimoto_train_test=1.0)
+    report.assert_clean()
+    with pytest.raises(AssertionError, match="targets shared"):
+        report.assert_clean(allow_shared_targets=False)
+    with pytest.raises(AssertionError, match="scaffolds shared"):
+        replace(report, shared_scaffolds=1).assert_clean()
+
+
+def test_threshold_keys_must_match_exactly() -> None:
+    """A misspelt key must raise, not leave its check silently disabled."""
+    misspelt = asdict(_THRESHOLDS)
+    misspelt["max_shared_scaffold"] = misspelt.pop("max_shared_scaffolds")
+    with pytest.raises(ValueError, match="max_shared_scaffold"):
+        LeakageThresholds.from_mapping(misspelt)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("max_shared_inchikeys", -1),
+        ("max_shared_inchikeys", True),
+        ("max_shared_scaffolds", 0.5),
+        ("max_tanimoto_train_test", 1.5),
+        ("max_tanimoto_train_test", "0.85"),
+    ],
+)
+def test_threshold_values_are_validated(key: str, value: object) -> None:
+    with pytest.raises(ValueError, match=key):
+        LeakageThresholds.from_mapping({**asdict(_THRESHOLDS), key: value})
+
+
+def test_config_without_an_audit_block_is_rejected(tmp_path: Path) -> None:
+    config = tmp_path / "no_audit.yaml"
+    config.write_text("name: scaffold\nstrategy: scaffold\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="audit"):
+        load_leakage_thresholds(config)
+
+
+def test_configured_gate_rejects_the_random_split(toy_df: pd.DataFrame) -> None:
+    """The gate tested in failure, with the thresholds actually declared for the
+    default regime: a random split shares scaffolds between train and test."""
+    thresholds = load_leakage_thresholds(_SPLIT_CONFIG_DIR / "scaffold.yaml")
+    report = audit_leakage(toy_df, random_split(toy_df), sample=200)
+    with pytest.raises(AssertionError, match="above max_shared_scaffolds="):
+        report.assert_clean(thresholds=thresholds)
+
+
+def test_configured_tanimoto_ceiling_catches_what_scaffold_disjointness_misses(
+    toy_df: pd.DataFrame,
+) -> None:
+    """The fixture keeps cyclohexane and cycloheptane, whose ECFP4 fingerprints are
+    identical. At the default seed the cycloheptane series lands in test and the
+    cyclohexane series in train: no scaffold is shared, yet the nearest-neighbour
+    similarity is 1.0. The historical rules pass this split; the configured ceiling
+    does not.
+    """
+    thresholds = load_leakage_thresholds(_SPLIT_CONFIG_DIR / "scaffold.yaml")
+    report = audit_leakage(toy_df, scaffold_split(toy_df), sample=200)
+    report.assert_clean()
+    assert report.violations(thresholds) == [
+        "nearest-neighbour Tanimoto 1.000, above max_tanimoto_train_test=0.85"
+    ]
