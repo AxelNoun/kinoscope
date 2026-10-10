@@ -14,10 +14,13 @@ the rest of the suite combined.
 
 from __future__ import annotations
 
+from functools import partial
+
 import numpy as np
 import pandas as pd
 import pytest
 from hypothesis import assume, given, settings
+from hypothesis import strategies as st
 from rdkit import Chem
 
 from kinoscope.data.splits import (
@@ -180,3 +183,48 @@ def test_group_splits_depend_on_the_seed() -> None:
     df = _fixed_frame()
     a, b = scaffold_split(df, seed=1), scaffold_split(df, seed=999)
     assert not np.array_equal(a.test, b.test)
+
+
+def _sizes(split: Split) -> tuple[int, int, int]:
+    return len(split.train), len(split.valid), len(split.test)
+
+
+def test_group_split_sizes_do_not_depend_on_the_seed() -> None:
+    """Second non-regression test announced in the Logbook entry for 4.1
+    (2026-09-02): partitions must change with the seed, their sizes must not.
+
+    The seed only reorders groups of equal size before the stable sort, so greedy
+    filling sees the same sequence of group sizes, and fills every bucket to the
+    same size, whatever the seed. Removing the size sort, or shuffling after it,
+    loses largest-first filling and makes the sizes depend on the seed.
+
+    ``cold_pair`` is left out: it intersects two partitions, and its sizes do vary
+    with the seed.
+    """
+    df = _fixed_frame()
+    factories = {
+        "scaffold": scaffold_split,
+        "butina": butina_split,
+        "cold_target": cold_target_split,
+        "cold_target_by_uniprot": partial(cold_target_split, by="uniprot"),
+    }
+    for name, factory in factories.items():
+        sizes = {_sizes(factory(df, seed=seed)) for seed in (1, 7, 42, 999, 2024)}
+        assert len(sizes) == 1, f"{name}: partition sizes vary with the seed: {sorted(sizes)}"
+
+
+@settings(max_examples=30)
+@given(
+    df=affinity_frames(max_rows=120),
+    seeds=st.lists(
+        st.integers(min_value=0, max_value=2**32 - 1), min_size=2, max_size=4, unique=True
+    ),
+)
+def test_group_split_sizes_do_not_depend_on_the_seed_on_drawn_datasets(
+    df: pd.DataFrame, seeds: list[int]
+) -> None:
+    """Same property on drawn datasets, where group sizes are uneven and ties
+    between equal-sized groups are frequent."""
+    for factory in (scaffold_split, cold_target_split):
+        sizes = {_sizes(factory(df, seed=seed)) for seed in seeds}
+        assert len(sizes) == 1, f"{factory.__name__}: sizes vary with the seed: {sorted(sizes)}"
