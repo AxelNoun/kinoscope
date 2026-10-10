@@ -8,13 +8,17 @@ memorising an already-seen ligand or target.
 from __future__ import annotations
 
 import logging
+import math
 from collections import defaultdict
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, fields
+from pathlib import Path
 from typing import Any, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from omegaconf import OmegaConf
 from rdkit import Chem, DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 from rdkit.Chem.Scaffolds import MurckoScaffold
@@ -194,6 +198,80 @@ def temporal_split(
 # --------------------------------------------------------------------------- #
 # Leakage audit
 # --------------------------------------------------------------------------- #
+# Count thresholds: threshold field -> (``LeakageReport`` field, noun for messages).
+_COUNT_THRESHOLDS = {
+    "max_shared_inchikeys": ("shared_inchikeys", "ligands"),
+    "max_shared_uniprots": ("shared_uniprots", "targets"),
+    "max_shared_scaffolds": ("shared_scaffolds", "scaffolds"),
+}
+
+
+@dataclass(frozen=True)
+class LeakageThresholds:
+    """Failure thresholds of the leakage gate, as declared under ``audit:`` in
+    ``configs/split/*.yaml``.
+
+    Each field is the largest value of the matching ``LeakageReport`` field that the
+    gate accepts; a run that exceeds it fails. ``None`` disables that one check, as
+    ``max_shared_uniprots: null`` does for the cold-drug ``scaffold`` regime.
+
+    ``None`` must be written, never implied: ``from_mapping`` requires every field
+    and rejects any other key, so a misspelt or forgotten key raises instead of
+    silently switching a check off.
+
+    ``max_tanimoto_train_test`` is compared with a *sampled* maximum (see
+    ``audit_leakage``), a lower bound of the true one: staying under the ceiling
+    is evidence of a cold split, not a guarantee.
+    """
+
+    max_shared_inchikeys: int | None
+    max_shared_uniprots: int | None
+    max_shared_scaffolds: int | None
+    max_tanimoto_train_test: float | None
+
+    @classmethod
+    def from_mapping(cls, audit: Mapping[str, Any]) -> LeakageThresholds:
+        expected = {f.name for f in fields(cls)}
+        missing, unknown = expected - set(audit), set(audit) - expected
+        if missing or unknown:
+            raise ValueError(
+                f"audit thresholds: missing keys {sorted(missing)}, unknown keys "
+                f"{sorted(unknown)}; write `null` to disable a check explicitly"
+            )
+        for name in _COUNT_THRESHOLDS:
+            value = audit[name]
+            # `bool` is a subclass of `int`: `true` would otherwise read as 1.
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"{name} must be a non-negative integer or null, got {value!r}")
+        ceiling = audit["max_tanimoto_train_test"]
+        if ceiling is not None:
+            if (
+                isinstance(ceiling, bool)
+                or not isinstance(ceiling, int | float)
+                or not 0.0 <= ceiling <= 1.0
+            ):
+                raise ValueError(
+                    f"max_tanimoto_train_test must be a number in [0, 1] or null, got {ceiling!r}"
+                )
+            ceiling = float(ceiling)
+        return cls(
+            max_shared_inchikeys=audit["max_shared_inchikeys"],
+            max_shared_uniprots=audit["max_shared_uniprots"],
+            max_shared_scaffolds=audit["max_shared_scaffolds"],
+            max_tanimoto_train_test=ceiling,
+        )
+
+
+def load_leakage_thresholds(path: str | Path) -> LeakageThresholds:
+    """Read the ``audit:`` block of a split config (``configs/split/<regime>.yaml``)."""
+    cfg = OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("audit"), dict):
+        raise ValueError(f"{path}: no `audit:` mapping of leakage thresholds")
+    return LeakageThresholds.from_mapping({str(k): v for k, v in cfg["audit"].items()})
+
+
 @dataclass
 class LeakageReport:
     n_train: int
@@ -205,11 +283,58 @@ class LeakageReport:
     max_tanimoto_train_test: float
     frac_test_above_0_7: float
 
-    def assert_clean(self, *, allow_shared_targets: bool = True) -> None:
-        assert self.shared_inchikeys == 0, f"{self.shared_inchikeys} ligands shared train/test"
-        assert self.shared_scaffolds == 0, f"{self.shared_scaffolds} scaffolds shared train/test"
-        if not allow_shared_targets:
-            assert self.shared_uniprots == 0, f"{self.shared_uniprots} targets shared train/test"
+    def violations(self, thresholds: LeakageThresholds) -> list[str]:
+        """Every threshold this report exceeds, as readable messages."""
+        found = []
+        for name, (field, noun) in _COUNT_THRESHOLDS.items():
+            limit = getattr(thresholds, name)
+            value = getattr(self, field)
+            if limit is not None and value > limit:
+                found.append(f"{value} {noun} shared train/test, above {name}={limit}")
+        ceiling = thresholds.max_tanimoto_train_test
+        if ceiling is not None:
+            # NaN (degenerate partition, see `audit_leakage`) compares False with
+            # everything: without this branch it would pass the ceiling unseen. A
+            # similarity that could not be measured is not a similarity below it.
+            if math.isnan(self.max_tanimoto_train_test):
+                found.append(
+                    "nearest-neighbour Tanimoto is NaN (empty train or test partition): "
+                    f"max_tanimoto_train_test={ceiling} cannot be verified"
+                )
+            elif self.max_tanimoto_train_test > ceiling:
+                found.append(
+                    f"nearest-neighbour Tanimoto {self.max_tanimoto_train_test:.3f}, "
+                    f"above max_tanimoto_train_test={ceiling}"
+                )
+        return found
+
+    def assert_clean(
+        self,
+        *,
+        allow_shared_targets: bool = True,
+        thresholds: LeakageThresholds | None = None,
+    ) -> None:
+        """Fail if the report exceeds the leakage thresholds.
+
+        With ``thresholds`` (normally ``load_leakage_thresholds`` on the regime's
+        config), those thresholds are applied and ``allow_shared_targets`` is
+        ignored. Without, the historical rules apply: no shared ligand, no shared
+        scaffold, and no shared target unless ``allow_shared_targets``; the Tanimoto
+        ceiling is then not checked.
+
+        Raises ``AssertionError`` explicitly rather than through ``assert``, which
+        ``python -O`` would strip.
+        """
+        if thresholds is None:
+            thresholds = LeakageThresholds(
+                max_shared_inchikeys=0,
+                max_shared_uniprots=None if allow_shared_targets else 0,
+                max_shared_scaffolds=0,
+                max_tanimoto_train_test=None,
+            )
+        found = self.violations(thresholds)
+        if found:
+            raise AssertionError("leakage gate failed: " + "; ".join(found))
 
 
 def audit_leakage(
